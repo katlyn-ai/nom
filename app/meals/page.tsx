@@ -113,6 +113,7 @@ export default function MealsPage() {
       }
 
       const data = await res.json()
+      console.log('suggest-meals response:', JSON.stringify(data))
       const meals = Array.isArray(data.meals) && data.meals.length > 0
         ? data.meals
         : FALLBACK_MEALS
