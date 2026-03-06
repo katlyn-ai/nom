@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -38,7 +38,30 @@ export async function middleware(request: NextRequest) {
 
   // Redirect to dashboard if already logged in and visiting auth pages
   if (user && (pathname === '/auth/login' || pathname === '/auth/signup' || pathname === '/')) {
+    // Check if onboarding is completed
+    const { data: settings } = await supabase
+      .from('settings')
+      .select('onboarding_completed')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!settings?.onboarding_completed) {
+      return NextResponse.redirect(new URL('/onboarding', request.url))
+    }
     return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  // Redirect logged-in users who haven't done onboarding
+  if (user && pathname !== '/onboarding') {
+    const { data: settings } = await supabase
+      .from('settings')
+      .select('onboarding_completed')
+      .eq('user_id', user.id)
+      .single()
+
+    if (!settings?.onboarding_completed) {
+      return NextResponse.redirect(new URL('/onboarding', request.url))
+    }
   }
 
   return supabaseResponse
