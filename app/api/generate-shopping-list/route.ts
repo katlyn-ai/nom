@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     .select('custom_name, recipes(name, ingredients)')
     .eq('user_id', userId)
 
-  const mealNames = meals?.map(m => m.custom_name || (m.recipes as { name: string } | null)?.name).filter(Boolean) || []
+  const mealNames = meals?.map(m => m.custom_name || (m.recipes as unknown as { name: string } | null)?.name).filter(Boolean) || []
 
   if (mealNames.length === 0) {
     return NextResponse.json({ items: [] })
