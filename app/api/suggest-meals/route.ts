@@ -91,9 +91,18 @@ ${context}`
     if (!text) return NextResponse.json({ meals: FALLBACK, debug: `No text in response: ${JSON.stringify(data)}` })
 
     const match = text.match(/\[[\s\S]*\]/)
-    const meals = match ? JSON.parse(match[0]) : []
+    let meals: string[] = []
+    try {
+      meals = match ? JSON.parse(match[0]) : []
+    } catch (e) {
+      return NextResponse.json({ meals: FALLBACK, debug: `JSON parse failed: ${text}` })
+    }
 
-    return NextResponse.json({ meals: meals.length > 0 ? meals : FALLBACK })
+    if (meals.length === 0) {
+      return NextResponse.json({ meals: FALLBACK, debug: `AI text was: ${text}` })
+    }
+
+    return NextResponse.json({ meals })
   } catch (error) {
     console.error('AI error:', error)
     return NextResponse.json({ meals: FALLBACK })
