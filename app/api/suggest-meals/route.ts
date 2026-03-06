@@ -55,6 +55,8 @@ ${context}`
     ? `Suggest meals for this week. Extra notes: ${prompt}`
     : `Suggest ${suggestionCount} great ${primaryMealType} meals for this week.`
 
+  const FALLBACK = ['Pasta Carbonara', 'Chicken Stir Fry', 'Vegetable Curry', 'Salmon with Rice', 'Tomato Soup', 'Greek Salad', 'Beef Tacos']
+
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -71,17 +73,29 @@ ${context}`
       }),
     })
 
+    if (!response.ok) {
+      const err = await response.text()
+      console.error('Anthropic API error:', response.status, err)
+      return NextResponse.json({ meals: FALLBACK })
+    }
+
     const data = await response.json()
-    const text = data.content?.[0]?.text || '[]'
+
+    // If the API returned an error object instead of a message
+    if (data.type === 'error') {
+      console.error('Anthropic error:', data.error)
+      return NextResponse.json({ meals: FALLBACK })
+    }
+
+    const text = data.content?.[0]?.text || ''
+    if (!text) return NextResponse.json({ meals: FALLBACK })
 
     const match = text.match(/\[[\s\S]*\]/)
     const meals = match ? JSON.parse(match[0]) : []
 
-    return NextResponse.json({ meals })
+    return NextResponse.json({ meals: meals.length > 0 ? meals : FALLBACK })
   } catch (error) {
     console.error('AI error:', error)
-    return NextResponse.json({
-      meals: ['Pasta Carbonara', 'Chicken Stir Fry', 'Vegetable Curry', 'Salmon with Rice', 'Tomato Soup', 'Greek Salad', 'Beef Tacos']
-    })
+    return NextResponse.json({ meals: FALLBACK })
   }
 }
