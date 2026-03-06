@@ -1,16 +1,30 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+const SORT_LABELS: Record<string, string> = {
+  popular: 'most popular / best-selling products',
+  sale: 'products currently on sale or with promotions',
+  price_per_kg: 'products with the lowest price per kg or unit',
+  my_brands: "the user's preferred brands listed above",
+}
+
 export async function POST(request: Request) {
   const { userId } = await request.json()
 
   const supabase = await createClient()
 
-  // Fetch this week's meal plan
-  const { data: meals } = await supabase
-    .from('meal_plans')
-    .select('custom_name, recipes(name, ingredients)')
-    .eq('user_id', userId)
+  // Fetch meal plan and settings in parallel
+  const [{ data: meals }, { data: settings }] = await Promise.all([
+    supabase
+      .from('meal_plans')
+      .select('custom_name, recipes(name, ingredients)')
+      .eq('user_id', userId),
+    supabase
+      .from('settings')
+      .select('preferred_brands, store_sort_preference, preferred_store')
+      .eq('user_id', userId)
+      .single(),
+  ])
 
   const mealNames = meals?.map(m => m.custom_name || (m.recipes as unknown as { name: string } | null)?.name).filter(Boolean) || []
 
@@ -18,9 +32,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ items: [] })
   }
 
+  const sortPref = settings?.store_sort_preference || 'popular'
+  const sortInstruction = SORT_LABELS[sortPref] || SORT_LABELS.popular
+  const preferredBrands = settings?.preferred_brands as string[] | null
+  const brandsContext = preferredBrands?.length
+    ? `\nPreferred brands/products: ${preferredBrands.join(', ')}. Where possible, suggest these specific brands.`
+    : ''
+  const storeContext = settings?.preferred_store
+    ? `\nShopping at: ${settings.preferred_store}.`
+    : ''
+
   const systemPrompt = `You are a helpful assistant for NOM, a meal planning app.
-Given a list of meals for the week, generate a shopping list.
+Given a list of meals for the week, generate a practical shopping list.
 Return ONLY a JSON array of objects with "name" (string) and "category" (one of: Produce, Dairy, Meat, Pantry, Frozen, Drinks, Other).
+When choosing specific products or brands, prefer ${sortInstruction}.${brandsContext}${storeContext}
 Be practical — combine similar items and use realistic quantities.`
 
   const userMessage = `Generate a shopping list for these meals this week: ${mealNames.join(', ')}`

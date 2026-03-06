@@ -11,54 +11,35 @@ const ALL_MEAL_TYPES = [
   { key: 'dinner', label: 'Dinner', emoji: '🌙' },
 ]
 
-type Meal = {
-  id?: string
-  day_index: number
-  meal_type: string
-  custom_name: string
-  recipe_id?: string
-}
-
-type UserSettings = {
-  plan_breakfast: boolean
-  plan_lunch: boolean
-  plan_dinner: boolean
-}
+type Meal = { id?: string; day_index: number; meal_type: string; custom_name: string }
+type CalendarEvent = { dayIndex: number; summary: string; isNightOff: boolean }
 
 export default function MealsPage() {
   const [meals, setMeals] = useState<Meal[]>([])
-  const [mealSettings, setMealSettings] = useState<UserSettings>({
-    plan_breakfast: true,
-    plan_lunch: true,
-    plan_dinner: true,
-  })
+  const [planSettings, setPlanSettings] = useState({ plan_breakfast: true, plan_lunch: true, plan_dinner: true })
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
+  const [calendarConnected, setCalendarConnected] = useState(false)
+  const [syncing, setSyncing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
-  const [userId, setUserId] = useState<string | null>(null)
+  const [showSuggest, setShowSuggest] = useState(false)
   const [prompt, setPrompt] = useState('')
-  const [showPrompt, setShowPrompt] = useState(false)
-  const [generatedSuggestions, setGeneratedSuggestions] = useState<string[]>([])
+  const [suggestions, setSuggestions] = useState<string[]>([])
   const supabase = createClient()
 
-  // Which meal types are active based on settings
-  const activeMealTypes = ALL_MEAL_TYPES.filter(mt => {
-    if (mt.key === 'breakfast') return mealSettings.plan_breakfast !== false
-    if (mt.key === 'lunch') return mealSettings.plan_lunch !== false
-    if (mt.key === 'dinner') return mealSettings.plan_dinner !== false
-    return true
-  })
+  const activeMealTypes = ALL_MEAL_TYPES.filter(mt =>
+    mt.key === 'breakfast' ? planSettings.plan_breakfast :
+    mt.key === 'lunch' ? planSettings.plan_lunch : planSettings.plan_dinner
+  )
 
-  // Primary meal type: prefer dinner, fallback to lunch, then breakfast
   const primaryMealType = activeMealTypes.find(m => m.key === 'dinner')?.key
     || activeMealTypes.find(m => m.key === 'lunch')?.key
-    || activeMealTypes[0]?.key
-    || 'dinner'
+    || activeMealTypes[0]?.key || 'dinner'
 
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      setUserId(user.id)
 
       const [{ data: mealData }, { data: settingsData }] = await Promise.all([
         supabase.from('meal_plans').select('*').eq('user_id', user.id).order('day_index'),
@@ -67,7 +48,7 @@ export default function MealsPage() {
 
       setMeals(mealData || [])
       if (settingsData) {
-        setMealSettings({
+        setPlanSettings({
           plan_breakfast: settingsData.plan_breakfast ?? true,
           plan_lunch: settingsData.plan_lunch ?? true,
           plan_dinner: settingsData.plan_dinner ?? true,
@@ -78,86 +59,97 @@ export default function MealsPage() {
     load()
   }, [])
 
-  const handleGenerate = async () => {
-    setGenerating(true)
-    try {
-      const res = await fetch('/api/suggest-meals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, userId }),
-      })
-      const data = await res.json()
-      if (data.meals) {
-        setGeneratedSuggestions(data.meals)
-      }
-    } catch (e) {
-      console.error(e)
-    }
-    setGenerating(false)
-  }
-
+  // saveMeal: gets user directly each time to avoid null userId state bug
   const saveMeal = async (dayIndex: number, mealType: string, name: string) => {
-    if (!userId) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const uid = user.id
+
     const existing = meals.find(m => m.day_index === dayIndex && m.meal_type === mealType)
     if (existing?.id) {
       await supabase.from('meal_plans').update({ custom_name: name }).eq('id', existing.id)
       setMeals(prev => prev.map(m => m.id === existing.id ? { ...m, custom_name: name } : m))
     } else {
       const { data } = await supabase.from('meal_plans').insert({
-        user_id: userId,
-        day_index: dayIndex,
-        meal_type: mealType,
-        custom_name: name,
+        user_id: uid, day_index: dayIndex, meal_type: mealType, custom_name: name,
       }).select().single()
       if (data) setMeals(prev => [...prev, data])
     }
   }
 
-  // Click a chip: assign to the next empty slot for the primary meal type
-  const handleSuggestionClick = async (mealName: string, index: number) => {
-    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
-      const existing = meals.find(m => m.day_index === dayIndex && m.meal_type === primaryMealType)
+  const handleGenerate = async () => {
+    setGenerating(true)
+    setSuggestions([])
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setGenerating(false); return }
+      const res = await fetch('/api/suggest-meals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, userId: user.id }),
+      })
+      const data = await res.json()
+      if (data.meals?.length) setSuggestions(data.meals)
+      setShowSuggest(true)
+    } catch { /* fallback handled in API */ }
+    setGenerating(false)
+  }
+
+  const handleChipClick = async (meal: string, index: number) => {
+    for (let d = 0; d < 7; d++) {
+      const existing = meals.find(m => m.day_index === d && m.meal_type === primaryMealType)
       if (!existing?.custom_name) {
-        await saveMeal(dayIndex, primaryMealType, mealName)
-        setGeneratedSuggestions(prev => prev.filter((_, i) => i !== index))
+        await saveMeal(d, primaryMealType, meal)
+        setSuggestions(prev => prev.filter((_, i) => i !== index))
         return
       }
     }
-    // All slots filled — replace last day
-    await saveMeal(6, primaryMealType, mealName)
-    setGeneratedSuggestions(prev => prev.filter((_, i) => i !== index))
+    await saveMeal(6, primaryMealType, meal)
+    setSuggestions(prev => prev.filter((_, i) => i !== index))
   }
 
-  // Fill week: distribute all suggestions across active meal types
   const handleFillWeek = async () => {
     let si = 0
-    for (let dayIndex = 0; dayIndex < 7 && si < generatedSuggestions.length; dayIndex++) {
+    for (let d = 0; d < 7 && si < suggestions.length; d++) {
       for (const mt of activeMealTypes) {
-        if (si >= generatedSuggestions.length) break
-        const existing = meals.find(m => m.day_index === dayIndex && m.meal_type === mt.key)
+        if (si >= suggestions.length) break
+        const existing = meals.find(m => m.day_index === d && m.meal_type === mt.key)
         if (!existing?.custom_name) {
-          await saveMeal(dayIndex, mt.key, generatedSuggestions[si])
-          si++
+          await saveMeal(d, mt.key, suggestions[si++])
         }
       }
     }
-    setGeneratedSuggestions([])
+    setSuggestions([])
+  }
+
+  const syncCalendar = async () => {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/calendar-events', { method: 'POST' })
+      const data = await res.json()
+      if (data.events) {
+        setCalendarEvents(data.events)
+        setCalendarConnected(true)
+      } else if (data.needsAuth) {
+        window.location.href = '/api/auth/google-calendar'
+      }
+    } catch { /* ignore */ }
+    setSyncing(false)
   }
 
   const getMeal = (dayIndex: number, mealType: string) =>
     meals.find(m => m.day_index === dayIndex && m.meal_type === mealType)
 
-  const gridCols = activeMealTypes.length === 1
-    ? 'grid-cols-1'
-    : activeMealTypes.length === 2
-    ? 'grid-cols-2'
-    : 'grid-cols-3'
+  const gridCols = activeMealTypes.length === 1 ? 'grid-cols-1'
+    : activeMealTypes.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--background)' }}>
+      <div className="min-h-screen" style={{ background: 'var(--background)' }}>
         <Nav />
-        <p style={{ color: 'var(--muted)' }}>Loading…</p>
+        <div className="md:ml-64 flex items-center justify-center h-64">
+          <div className="text-2xl animate-pulse">🍽️</div>
+        </div>
       </div>
     )
   }
@@ -165,129 +157,157 @@ export default function MealsPage() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       <Nav />
-      <main className="md:ml-60 px-6 py-8 pb-24 md:pb-8 max-w-4xl">
-        <div className="mb-8 flex items-start justify-between">
+      <main className="md:ml-64 px-6 py-8 pb-24 md:pb-8 max-w-4xl">
+
+        {/* Header */}
+        <div className="mb-7 flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>
-              Meal Plan
-            </h1>
-            <p className="mt-1" style={{ color: 'var(--muted)' }}>
-              Plan your meals for the week
-            </p>
+            <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Meal Plan</h1>
+            <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Plan your week, click a slot to edit</p>
           </div>
-          <button
-            onClick={() => setShowPrompt(!showPrompt)}
-            className="px-4 py-2.5 rounded-xl text-white text-sm font-medium"
-            style={{ background: 'var(--primary)' }}
-          >
-            ✨ AI Suggest
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={syncCalendar}
+              disabled={syncing}
+              className="px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
+              style={{ background: calendarConnected ? 'var(--secondary-light)' : 'var(--card)', color: calendarConnected ? 'var(--secondary)' : 'var(--muted)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
+            >
+              {syncing ? '⏳' : '🗓'} {calendarConnected ? 'Calendar synced' : 'Sync calendar'}
+            </button>
+            <button
+              onClick={() => { setShowSuggest(!showSuggest); if (!showSuggest && suggestions.length === 0) handleGenerate() }}
+              className="px-4 py-2.5 rounded-xl text-white text-sm font-medium transition-all"
+              style={{ background: 'var(--gradient-primary)', boxShadow: 'var(--shadow-md)' }}
+            >
+              ✨ {generating ? 'Generating…' : 'Generate meals'}
+            </button>
+          </div>
         </div>
 
-        {/* AI suggestion panel */}
-        {showPrompt && (
+        {/* AI suggestions panel */}
+        {showSuggest && (
           <div
             className="rounded-2xl p-5 mb-6"
-            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+            style={{ background: 'var(--card)', boxShadow: 'var(--shadow-md)', border: '1px solid var(--border)' }}
           >
-            <h3 className="font-medium mb-3" style={{ color: 'var(--foreground)' }}>
-              Tell NOM what you have in mind
-            </h3>
-            <textarea
-              value={prompt}
-              onChange={e => setPrompt(e.target.value)}
-              placeholder="e.g. We want something light this week, no red meat, and one pasta dish…"
-              rows={3}
-              className="w-full px-4 py-3 rounded-xl border text-sm outline-none resize-none mb-3"
-              style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
-            />
-            <div className="flex gap-2">
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={prompt}
+                onChange={e => setPrompt(e.target.value)}
+                placeholder="Any special requests? e.g. light meals, no red meat, one pasta dish…"
+                className="flex-1 px-4 py-2.5 rounded-xl border text-sm outline-none"
+                style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
+                onKeyDown={e => e.key === 'Enter' && handleGenerate()}
+              />
               <button
                 onClick={handleGenerate}
                 disabled={generating}
-                className="px-4 py-2 rounded-xl text-white text-sm font-medium disabled:opacity-60"
-                style={{ background: 'var(--primary)' }}
+                className="px-4 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-60"
+                style={{ background: 'var(--gradient-primary)' }}
               >
-                {generating ? 'Generating…' : 'Generate meals'}
-              </button>
-              <button
-                onClick={() => { setShowPrompt(false); setGeneratedSuggestions([]) }}
-                className="px-4 py-2 rounded-xl text-sm font-medium"
-                style={{ color: 'var(--muted)', background: 'var(--border)' }}
-              >
-                Cancel
+                {generating ? '…' : 'Generate'}
               </button>
             </div>
 
-            {generatedSuggestions.length > 0 && (
-              <div className="mt-4">
-                <div className="flex items-center justify-between mb-2">
+            {suggestions.length > 0 && (
+              <>
+                <div className="flex items-center justify-between mb-2.5">
                   <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
-                    Click a meal to add it to the first empty slot:
+                    Click a meal to add it to the next free slot:
                   </p>
                   <button
                     onClick={handleFillWeek}
-                    className="text-xs px-3 py-1.5 rounded-full font-medium"
-                    style={{ background: 'var(--primary)', color: 'white' }}
+                    className="text-xs px-3 py-1.5 rounded-full font-medium text-white"
+                    style={{ background: 'var(--gradient-primary)' }}
                   >
                     Fill whole week
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {generatedSuggestions.map((s, i) => (
+                  {suggestions.map((s, i) => (
                     <button
                       key={i}
-                      onClick={() => handleSuggestionClick(s, i)}
-                      className="text-sm px-3 py-1.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity text-left"
+                      onClick={() => handleChipClick(s, i)}
+                      className="text-sm px-3 py-1.5 rounded-full font-medium transition-all hover:opacity-80 hover:scale-105"
                       style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
                     >
                       {s}
                     </button>
                   ))}
                 </div>
+              </>
+            )}
+
+            {generating && suggestions.length === 0 && (
+              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--muted)' }}>
+                <span className="animate-spin">⏳</span> Asking NOM AI for ideas…
               </div>
             )}
           </div>
         )}
 
-        {/* Weekly grid */}
-        <div className="space-y-4">
-          {DAYS.map((day, dayIndex) => (
-            <div
-              key={day}
-              className="rounded-2xl p-4"
-              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-            >
-              <p className="font-medium mb-3" style={{ color: 'var(--foreground)' }}>{day}</p>
-              <div className={`grid ${gridCols} gap-3`}>
-                {activeMealTypes.map(({ key, label, emoji }) => {
-                  const existing = getMeal(dayIndex, key)
-                  return (
-                    <div key={key}>
-                      <p className="text-xs mb-1" style={{ color: 'var(--muted)' }}>
-                        {emoji} {label}
-                      </p>
-                      <input
-                        key={existing?.id || `${dayIndex}-${key}-empty`}
-                        type="text"
-                        defaultValue={existing?.custom_name || ''}
-                        placeholder="Add meal…"
-                        onBlur={e => {
-                          if (e.target.value) saveMeal(dayIndex, key, e.target.value)
-                        }}
-                        className="w-full px-3 py-2 rounded-xl border text-sm outline-none"
-                        style={{
-                          borderColor: 'var(--border)',
-                          background: 'var(--background)',
-                          color: 'var(--foreground)',
-                        }}
-                      />
+        {/* Week grid */}
+        <div className="space-y-3">
+          {DAYS.map((day, dayIndex) => {
+            const dayEvents = calendarEvents.filter(e => e.dayIndex === dayIndex)
+            const hasNightOff = dayEvents.some(e => e.isNightOff)
+            return (
+              <div
+                key={day}
+                className="rounded-2xl p-4"
+                style={{
+                  background: hasNightOff ? 'var(--secondary-light)' : 'var(--card)',
+                  boxShadow: 'var(--shadow-sm)',
+                  border: `1px solid ${hasNightOff ? 'var(--secondary)' : 'var(--border)'}`,
+                  opacity: hasNightOff ? 0.9 : 1,
+                }}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <p className="font-semibold text-sm" style={{ color: 'var(--foreground)' }}>{day}</p>
+                  {dayEvents.length > 0 && (
+                    <div className="flex gap-1.5 flex-wrap">
+                      {dayEvents.map((evt, ei) => (
+                        <span
+                          key={ei}
+                          className="text-xs px-2 py-0.5 rounded-full font-medium"
+                          style={{ background: 'var(--secondary-light)', color: 'var(--secondary)' }}
+                        >
+                          🗓 {evt.summary}
+                        </span>
+                      ))}
                     </div>
-                  )
-                })}
+                  )}
+                </div>
+
+                {hasNightOff ? (
+                  <p className="text-sm" style={{ color: 'var(--secondary)' }}>🎉 Night off — no cooking needed</p>
+                ) : (
+                  <div className={`grid ${gridCols} gap-3`}>
+                    {activeMealTypes.map(({ key, label, emoji }) => {
+                      const existing = getMeal(dayIndex, key)
+                      return (
+                        <div key={key}>
+                          <p className="text-xs mb-1.5 font-medium" style={{ color: 'var(--muted)' }}>
+                            {emoji} {label}
+                          </p>
+                          <input
+                            key={existing?.id || `${dayIndex}-${key}-empty`}
+                            type="text"
+                            defaultValue={existing?.custom_name || ''}
+                            placeholder="Add meal…"
+                            onBlur={e => { if (e.target.value.trim()) saveMeal(dayIndex, key, e.target.value.trim()) }}
+                            className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none"
+                            style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
+                          />
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </main>
     </div>

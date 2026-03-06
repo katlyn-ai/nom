@@ -92,7 +92,7 @@ export default function RecipesPage() {
   if (loading) return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       <Nav />
-      <div className="md:ml-60 flex items-center justify-center h-screen">
+      <div className="md:ml-64 flex items-center justify-center h-screen">
         <p style={{ color: 'var(--muted)' }}>Loading recipes…</p>
       </div>
     </div>
@@ -101,7 +101,7 @@ export default function RecipesPage() {
   return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       <Nav />
-      <main className="md:ml-60 px-6 py-8 pb-24 md:pb-8 max-w-4xl">
+      <main className="md:ml-64 px-6 py-8 pb-24 md:pb-8 max-w-4xl">
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Recipe Book</h1>
