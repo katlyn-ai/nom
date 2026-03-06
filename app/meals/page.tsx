@@ -10,6 +10,10 @@ const ALL_MEAL_TYPES = [
   { key: 'lunch', label: 'Lunch', emoji: '☀️' },
   { key: 'dinner', label: 'Dinner', emoji: '🌙' },
 ]
+const FALLBACK_MEALS = [
+  'Pasta Carbonara', 'Chicken Stir Fry', 'Vegetable Curry',
+  'Salmon with Rice', 'Tomato Soup', 'Greek Salad', 'Beef Tacos',
+]
 
 type Meal = { id?: string; day_index: number; meal_type: string; custom_name: string }
 type CalendarEvent = { dayIndex: number; summary: string; isNightOff: boolean }
@@ -22,9 +26,10 @@ export default function MealsPage() {
   const [syncing, setSyncing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
-  const [showSuggest, setShowSuggest] = useState(false)
+  const [showPanel, setShowPanel] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [suggestions, setSuggestions] = useState<string[]>([])
+  const [generateError, setGenerateError] = useState('')
   const supabase = createClient()
 
   const activeMealTypes = ALL_MEAL_TYPES.filter(mt =>
@@ -59,7 +64,6 @@ export default function MealsPage() {
     load()
   }, [])
 
-  // saveMeal: gets user directly each time to avoid null userId state bug
   const saveMeal = async (dayIndex: number, mealType: string, name: string) => {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
@@ -80,19 +84,42 @@ export default function MealsPage() {
   const handleGenerate = async () => {
     setGenerating(true)
     setSuggestions([])
+    setGenerateError('')
+    setShowPanel(true)
+
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { setGenerating(false); return }
+      if (!user) {
+        setSuggestions(FALLBACK_MEALS)
+        setGenerating(false)
+        return
+      }
+
       const res = await fetch('/api/suggest-meals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, userId: user.id }),
       })
+
+      if (!res.ok) {
+        setSuggestions(FALLBACK_MEALS)
+        setGenerating(false)
+        return
+      }
+
       const data = await res.json()
-      if (data.meals?.length) setSuggestions(data.meals)
-      setShowSuggest(true)
-    } catch { /* fallback handled in API */ }
-    setGenerating(false)
+      const meals = Array.isArray(data.meals) && data.meals.length > 0
+        ? data.meals
+        : FALLBACK_MEALS
+
+      setSuggestions(meals)
+    } catch (err) {
+      console.error('Generate error:', err)
+      setSuggestions(FALLBACK_MEALS)
+      setGenerateError('Could not reach AI — showing defaults instead.')
+    } finally {
+      setGenerating(false)
+    }
   }
 
   const handleChipClick = async (meal: string, index: number) => {
@@ -120,6 +147,7 @@ export default function MealsPage() {
       }
     }
     setSuggestions([])
+    setShowPanel(false)
   }
 
   const syncCalendar = async () => {
@@ -170,32 +198,43 @@ export default function MealsPage() {
               onClick={syncCalendar}
               disabled={syncing}
               className="px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
-              style={{ background: calendarConnected ? 'var(--secondary-light)' : 'var(--card)', color: calendarConnected ? 'var(--secondary)' : 'var(--muted)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
+              style={{
+                background: calendarConnected ? 'var(--secondary-light)' : 'var(--card)',
+                color: calendarConnected ? 'var(--secondary)' : 'var(--muted)',
+                border: '1px solid var(--border)',
+                boxShadow: 'var(--shadow-sm)',
+              }}
             >
               {syncing ? '⏳' : '🗓'} {calendarConnected ? 'Calendar synced' : 'Sync calendar'}
             </button>
             <button
-              onClick={() => { setShowSuggest(!showSuggest); if (!showSuggest && suggestions.length === 0) handleGenerate() }}
-              className="px-4 py-2.5 rounded-xl text-white text-sm font-medium transition-all"
+              onClick={handleGenerate}
+              disabled={generating}
+              className="px-4 py-2.5 rounded-xl text-white text-sm font-medium transition-all disabled:opacity-70"
               style={{ background: 'var(--gradient-primary)', boxShadow: 'var(--shadow-md)' }}
             >
-              ✨ {generating ? 'Generating…' : 'Generate meals'}
+              {generating ? '⏳ Generating…' : '✨ Generate meals'}
             </button>
           </div>
         </div>
 
         {/* AI suggestions panel */}
-        {showSuggest && (
+        {showPanel && (
           <div
             className="rounded-2xl p-5 mb-6"
             style={{ background: 'var(--card)', boxShadow: 'var(--shadow-md)', border: '1px solid var(--border)' }}
           >
-            <div className="flex gap-2 mb-3">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>✨ AI Meal Suggestions</p>
+              <button onClick={() => setShowPanel(false)} style={{ color: 'var(--muted)', fontSize: 18 }}>✕</button>
+            </div>
+
+            <div className="flex gap-2 mb-4">
               <input
                 type="text"
                 value={prompt}
                 onChange={e => setPrompt(e.target.value)}
-                placeholder="Any special requests? e.g. light meals, no red meat, one pasta dish…"
+                placeholder="Any requests? e.g. light meals, no red meat, one pasta dish…"
                 className="flex-1 px-4 py-2.5 rounded-xl border text-sm outline-none"
                 style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
                 onKeyDown={e => e.key === 'Enter' && handleGenerate()}
@@ -206,14 +245,26 @@ export default function MealsPage() {
                 className="px-4 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-60"
                 style={{ background: 'var(--gradient-primary)' }}
               >
-                {generating ? '…' : 'Generate'}
+                {generating ? '…' : 'Regenerate'}
               </button>
             </div>
 
-            {suggestions.length > 0 && (
+            {generating && (
+              <div className="flex items-center gap-2 text-sm py-2" style={{ color: 'var(--muted)' }}>
+                <span className="animate-spin inline-block">⏳</span> Asking NOM AI for ideas…
+              </div>
+            )}
+
+            {generateError && (
+              <p className="text-xs mb-3 px-3 py-2 rounded-xl" style={{ background: 'var(--border)', color: 'var(--muted)' }}>
+                {generateError}
+              </p>
+            )}
+
+            {!generating && suggestions.length > 0 && (
               <>
                 <div className="flex items-center justify-between mb-2.5">
-                  <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                  <p className="text-sm" style={{ color: 'var(--muted)' }}>
                     Click a meal to add it to the next free slot:
                   </p>
                   <button
@@ -229,20 +280,14 @@ export default function MealsPage() {
                     <button
                       key={i}
                       onClick={() => handleChipClick(s, i)}
-                      className="text-sm px-3 py-1.5 rounded-full font-medium transition-all hover:opacity-80 hover:scale-105"
+                      className="text-sm px-3 py-1.5 rounded-full font-medium transition-all hover:opacity-80 active:scale-95"
                       style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
                     >
-                      {s}
+                      + {s}
                     </button>
                   ))}
                 </div>
               </>
-            )}
-
-            {generating && suggestions.length === 0 && (
-              <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--muted)' }}>
-                <span className="animate-spin">⏳</span> Asking NOM AI for ideas…
-              </div>
             )}
           </div>
         )}
@@ -260,7 +305,6 @@ export default function MealsPage() {
                   background: hasNightOff ? 'var(--secondary-light)' : 'var(--card)',
                   boxShadow: 'var(--shadow-sm)',
                   border: `1px solid ${hasNightOff ? 'var(--secondary)' : 'var(--border)'}`,
-                  opacity: hasNightOff ? 0.9 : 1,
                 }}
               >
                 <div className="flex items-center justify-between mb-3">
