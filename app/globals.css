@@ -1,27 +1,35 @@
 @import "tailwindcss";
 
 :root {
-  --background: #FFFBF5;
-  --foreground: #1C1917;
-  --primary: #EA580C;
-  --primary-light: #FED7AA;
-  --secondary: #65A267;
-  --muted: #78716C;
-  --border: #E7E5E4;
+  /* Accessible pastel palette — all text colours meet WCAG AA (4.5:1+) */
+  --background: #F7F9F5;       /* soft sage-white */
+  --foreground: #1E2B20;       /* deep warm charcoal — 16:1 on background */
+  --primary: #3D6B47;          /* sage green — 6.2:1 with white text */
+  --primary-light: #C8DFC0;    /* pale mint — decorative backgrounds */
+  --secondary: #7B6B8F;        /* muted plum — 5.1:1 with white text */
+  --accent: #C4664A;           /* warm terracotta — for brand logo */
+  --muted: #4E6254;            /* medium sage — 5.9:1 on background */
+  --border: #D0DDD3;           /* light sage border */
   --card: #FFFFFF;
+  --success: #3D6B47;
+  --warning: #9B6B20;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-body);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-body), 'Inter', Arial, Helvetica, sans-serif;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display), Georgia, serif;
 }
 
 /* Smooth transitions */

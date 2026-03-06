@@ -12,6 +12,11 @@ type Settings = {
   preferred_store: string
   order_day: string
   calorie_target: number | null
+  plan_breakfast: boolean
+  plan_lunch: boolean
+  plan_dinner: boolean
+  vegetarian_meals_per_week: number
+  snacks: string
 }
 
 const DIETS = ['Vegetarian', 'Vegan', 'Gluten-free', 'Dairy-free', 'Halal', 'Keto', 'Low-carb']
@@ -26,6 +31,11 @@ export default function SettingsPage() {
     preferred_store: '',
     order_day: 'Sunday',
     calorie_target: null,
+    plan_breakfast: true,
+    plan_lunch: true,
+    plan_dinner: true,
+    vegetarian_meals_per_week: 0,
+    snacks: '',
   })
   const [loading, setLoading] = useState(true)
   const [saved, setSaved] = useState(false)
@@ -38,7 +48,17 @@ export default function SettingsPage() {
       if (!user) return
       setUserId(user.id)
       const { data } = await supabase.from('settings').select('*').eq('user_id', user.id).single()
-      if (data) setSettings(data)
+      if (data) {
+        setSettings(prev => ({
+          ...prev,
+          ...data,
+          plan_breakfast: data.plan_breakfast ?? true,
+          plan_lunch: data.plan_lunch ?? true,
+          plan_dinner: data.plan_dinner ?? true,
+          vegetarian_meals_per_week: data.vegetarian_meals_per_week ?? 0,
+          snacks: data.snacks ?? '',
+        }))
+      }
       setLoading(false)
     }
     load()
@@ -60,6 +80,10 @@ export default function SettingsPage() {
     }))
   }
 
+  const toggleMealPlan = (key: 'plan_breakfast' | 'plan_lunch' | 'plan_dinner') => {
+    setSettings(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
   if (loading) return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       <Nav />
@@ -76,6 +100,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="space-y-6">
+
           {/* Household */}
           <section
             className="rounded-2xl p-5"
@@ -124,6 +149,83 @@ export default function SettingsPage() {
                   {diet}
                 </button>
               ))}
+            </div>
+          </section>
+
+          {/* Meal planning */}
+          <section
+            className="rounded-2xl p-5"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
+            <h2 className="font-semibold mb-4" style={{ color: 'var(--foreground)' }}>📅 Meal planning</h2>
+
+            {/* Which meals to plan */}
+            <div className="mb-5">
+              <label className="block text-sm font-medium mb-3" style={{ color: 'var(--foreground)' }}>
+                Which meals should NOM plan?
+              </label>
+              <div className="space-y-3">
+                {[
+                  { key: 'plan_breakfast' as const, label: '🌅 Breakfast' },
+                  { key: 'plan_lunch' as const, label: '☀️ Lunch' },
+                  { key: 'plan_dinner' as const, label: '🌙 Dinner' },
+                ].map(({ key, label }) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <span className="text-sm" style={{ color: 'var(--foreground)' }}>{label}</span>
+                    <button
+                      onClick={() => toggleMealPlan(key)}
+                      className="w-12 h-6 rounded-full flex items-center transition-colors"
+                      style={{ background: settings[key] ? 'var(--primary)' : 'var(--border)' }}
+                      aria-label={`Toggle ${label}`}
+                    >
+                      <span
+                        className="w-5 h-5 bg-white rounded-full shadow transition-transform mx-0.5"
+                        style={{ transform: settings[key] ? 'translateX(24px)' : 'translateX(0)' }}
+                      />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Vegetarian meals per week */}
+            <div className="mb-5">
+              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
+                Vegetarian meals per week
+              </label>
+              <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>
+                NOM will make sure this many of your suggested meals are meat-free
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                {[0, 1, 2, 3, 4, 5, 6, 7].map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setSettings(prev => ({ ...prev, vegetarian_meals_per_week: n }))}
+                    className="w-10 h-10 rounded-xl text-sm font-medium transition-colors"
+                    style={{
+                      background: settings.vegetarian_meals_per_week === n ? 'var(--primary)' : 'var(--border)',
+                      color: settings.vegetarian_meals_per_week === n ? 'white' : 'var(--muted)',
+                    }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Snacks */}
+            <div>
+              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
+                Typical snacks (optional)
+              </label>
+              <input
+                type="text"
+                value={settings.snacks}
+                onChange={e => setSettings(prev => ({ ...prev, snacks: e.target.value }))}
+                placeholder="e.g. fruit, nuts, crackers, yoghurt…"
+                className="w-full px-4 py-3 rounded-xl border text-sm outline-none"
+                style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
+              />
             </div>
           </section>
 
@@ -199,6 +301,7 @@ export default function SettingsPage() {
                 onClick={() => setSettings(prev => ({ ...prev, pantry_enabled: !prev.pantry_enabled }))}
                 className="w-12 h-6 rounded-full transition-colors flex items-center"
                 style={{ background: settings.pantry_enabled ? 'var(--primary)' : 'var(--border)' }}
+                aria-label="Toggle pantry tracking"
               >
                 <span
                   className="w-5 h-5 bg-white rounded-full shadow transition-transform mx-0.5"
@@ -227,7 +330,7 @@ export default function SettingsPage() {
           <button
             onClick={handleSave}
             className="w-full py-3.5 rounded-xl text-white font-medium transition-opacity hover:opacity-90"
-            style={{ background: saved ? 'var(--secondary)' : 'var(--primary)' }}
+            style={{ background: saved ? '#4A7C59' : 'var(--primary)' }}
           >
             {saved ? '✓ Saved!' : 'Save settings'}
           </button>

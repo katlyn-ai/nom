@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import Nav from '@/components/nav'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const MEAL_TYPES = [
+const ALL_MEAL_TYPES = [
   { key: 'breakfast', label: 'Breakfast', emoji: '🌅' },
   { key: 'lunch', label: 'Lunch', emoji: '☀️' },
   { key: 'dinner', label: 'Dinner', emoji: '🌙' },
@@ -19,8 +19,19 @@ type Meal = {
   recipe_id?: string
 }
 
+type UserSettings = {
+  plan_breakfast: boolean
+  plan_lunch: boolean
+  plan_dinner: boolean
+}
+
 export default function MealsPage() {
   const [meals, setMeals] = useState<Meal[]>([])
+  const [mealSettings, setMealSettings] = useState<UserSettings>({
+    plan_breakfast: true,
+    plan_lunch: true,
+    plan_dinner: true,
+  })
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
@@ -29,18 +40,39 @@ export default function MealsPage() {
   const [generatedSuggestions, setGeneratedSuggestions] = useState<string[]>([])
   const supabase = createClient()
 
+  // Which meal types are active based on settings
+  const activeMealTypes = ALL_MEAL_TYPES.filter(mt => {
+    if (mt.key === 'breakfast') return mealSettings.plan_breakfast !== false
+    if (mt.key === 'lunch') return mealSettings.plan_lunch !== false
+    if (mt.key === 'dinner') return mealSettings.plan_dinner !== false
+    return true
+  })
+
+  // Primary meal type: prefer dinner, fallback to lunch, then breakfast
+  const primaryMealType = activeMealTypes.find(m => m.key === 'dinner')?.key
+    || activeMealTypes.find(m => m.key === 'lunch')?.key
+    || activeMealTypes[0]?.key
+    || 'dinner'
+
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       setUserId(user.id)
 
-      const { data } = await supabase
-        .from('meal_plans')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('day_index')
-      setMeals(data || [])
+      const [{ data: mealData }, { data: settingsData }] = await Promise.all([
+        supabase.from('meal_plans').select('*').eq('user_id', user.id).order('day_index'),
+        supabase.from('settings').select('plan_breakfast, plan_lunch, plan_dinner').eq('user_id', user.id).single(),
+      ])
+
+      setMeals(mealData || [])
+      if (settingsData) {
+        setMealSettings({
+          plan_breakfast: settingsData.plan_breakfast ?? true,
+          plan_lunch: settingsData.plan_lunch ?? true,
+          plan_dinner: settingsData.plan_dinner ?? true,
+        })
+      }
       setLoading(false)
     }
     load()
@@ -81,8 +113,45 @@ export default function MealsPage() {
     }
   }
 
+  // Click a chip: assign to the next empty slot for the primary meal type
+  const handleSuggestionClick = async (mealName: string, index: number) => {
+    for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+      const existing = meals.find(m => m.day_index === dayIndex && m.meal_type === primaryMealType)
+      if (!existing?.custom_name) {
+        await saveMeal(dayIndex, primaryMealType, mealName)
+        setGeneratedSuggestions(prev => prev.filter((_, i) => i !== index))
+        return
+      }
+    }
+    // All slots filled — replace last day
+    await saveMeal(6, primaryMealType, mealName)
+    setGeneratedSuggestions(prev => prev.filter((_, i) => i !== index))
+  }
+
+  // Fill week: distribute all suggestions across active meal types
+  const handleFillWeek = async () => {
+    let si = 0
+    for (let dayIndex = 0; dayIndex < 7 && si < generatedSuggestions.length; dayIndex++) {
+      for (const mt of activeMealTypes) {
+        if (si >= generatedSuggestions.length) break
+        const existing = meals.find(m => m.day_index === dayIndex && m.meal_type === mt.key)
+        if (!existing?.custom_name) {
+          await saveMeal(dayIndex, mt.key, generatedSuggestions[si])
+          si++
+        }
+      }
+    }
+    setGeneratedSuggestions([])
+  }
+
   const getMeal = (dayIndex: number, mealType: string) =>
     meals.find(m => m.day_index === dayIndex && m.meal_type === mealType)
+
+  const gridCols = activeMealTypes.length === 1
+    ? 'grid-cols-1'
+    : activeMealTypes.length === 2
+    ? 'grid-cols-2'
+    : 'grid-cols-3'
 
   if (loading) {
     return (
@@ -142,7 +211,7 @@ export default function MealsPage() {
                 {generating ? 'Generating…' : 'Generate meals'}
               </button>
               <button
-                onClick={() => setShowPrompt(false)}
+                onClick={() => { setShowPrompt(false); setGeneratedSuggestions([]) }}
                 className="px-4 py-2 rounded-xl text-sm font-medium"
                 style={{ color: 'var(--muted)', background: 'var(--border)' }}
               >
@@ -152,18 +221,28 @@ export default function MealsPage() {
 
             {generatedSuggestions.length > 0 && (
               <div className="mt-4">
-                <p className="text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
-                  Suggestions — click to add to your plan:
-                </p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-medium" style={{ color: 'var(--foreground)' }}>
+                    Click a meal to add it to the first empty slot:
+                  </p>
+                  <button
+                    onClick={handleFillWeek}
+                    className="text-xs px-3 py-1.5 rounded-full font-medium"
+                    style={{ background: 'var(--primary)', color: 'white' }}
+                  >
+                    Fill whole week
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {generatedSuggestions.map((s, i) => (
-                    <span
+                    <button
                       key={i}
-                      className="text-sm px-3 py-1.5 rounded-full cursor-pointer hover:opacity-80"
+                      onClick={() => handleSuggestionClick(s, i)}
+                      className="text-sm px-3 py-1.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity text-left"
                       style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
                     >
                       {s}
-                    </span>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -180,8 +259,8 @@ export default function MealsPage() {
               style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
             >
               <p className="font-medium mb-3" style={{ color: 'var(--foreground)' }}>{day}</p>
-              <div className="grid grid-cols-3 gap-3">
-                {MEAL_TYPES.map(({ key, label, emoji }) => {
+              <div className={`grid ${gridCols} gap-3`}>
+                {activeMealTypes.map(({ key, label, emoji }) => {
                   const existing = getMeal(dayIndex, key)
                   return (
                     <div key={key}>
@@ -189,6 +268,7 @@ export default function MealsPage() {
                         {emoji} {label}
                       </p>
                       <input
+                        key={existing?.id || `${dayIndex}-${key}-empty`}
                         type="text"
                         defaultValue={existing?.custom_name || ''}
                         placeholder="Add meal…"
