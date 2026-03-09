@@ -24,6 +24,7 @@ export default function PantryPage() {
   const [outPrompt, setOutPrompt] = useState<{ id: string; name: string } | null>(null)
   const [addingToCart, setAddingToCart] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -43,16 +44,23 @@ export default function PantryPage() {
 
   const addItem = async () => {
     if (!newItem.trim() || adding) return
+    setAddError(null)
     setAdding(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setAdding(false); return }
-    const { data } = await supabase.from('pantry_items').insert({
+    const { data: { user }, error: authErr } = await supabase.auth.getUser()
+    if (!user) {
+      setAddError(authErr?.message || 'Not signed in')
+      setAdding(false)
+      return
+    }
+    const { data, error } = await supabase.from('pantry_items').insert({
       user_id: user.id,
       name: newItem.trim(),
       category,
       in_stock: true,
     }).select().single()
-    if (data) {
+    if (error) {
+      setAddError(error.message)
+    } else if (data) {
       setItems(prev => [...prev, data])
       setNewItem('')
     }
@@ -191,6 +199,11 @@ export default function PantryPage() {
               <PlusIcon size={14} /> {adding ? '…' : 'Add'}
             </button>
           </div>
+          {addError && (
+            <p className="text-xs mb-2 px-1" style={{ color: 'red' }}>
+              Error: {addError}
+            </p>
+          )}
           <div className="flex gap-2 flex-wrap">
             {CATEGORIES.map(cat => (
               <button
