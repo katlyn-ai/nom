@@ -24,6 +24,7 @@ type MealDetails = {
   cooking_time_minutes: number
   calories_per_serving: number
   ingredients: string[]
+  instructions: string[]
   loading?: boolean
 }
 
@@ -76,18 +77,8 @@ export default function DashboardPage() {
   const openMeal = async (meal: Meal) => {
     setSelectedMeal(meal)
 
-    // Show cached data immediately if available
-    if (meal.cooking_time_minutes && meal.calories_per_serving && meal.ingredients?.length) {
-      setMealDetails({
-        cooking_time_minutes: meal.cooking_time_minutes,
-        calories_per_serving: meal.calories_per_serving,
-        ingredients: meal.ingredients,
-      })
-      return
-    }
-
-    // Otherwise fetch from AI
-    setMealDetails({ cooking_time_minutes: 0, calories_per_serving: 0, ingredients: [], loading: true })
+    // Always fetch fresh — instructions aren't cached in DB
+    setMealDetails({ cooking_time_minutes: 0, calories_per_serving: 0, ingredients: [], instructions: [], loading: true })
     try {
       const res = await fetch('/api/meal-details', {
         method: 'POST',
@@ -98,11 +89,11 @@ export default function DashboardPage() {
         }),
       })
       const data = await res.json()
-      setMealDetails({ ...data, loading: false })
-      // Update local state so we don't re-fetch
+      setMealDetails({ instructions: [], ...data, loading: false })
+      // Update local state so time/calories/ingredients are cached
       setMeals(prev => prev.map(m => m.id === meal.id ? { ...m, ...data } : m))
     } catch {
-      setMealDetails({ cooking_time_minutes: 30, calories_per_serving: 450, ingredients: [], loading: false })
+      setMealDetails({ cooking_time_minutes: 30, calories_per_serving: 450, ingredients: [], instructions: [], loading: false })
     }
   }
 
@@ -375,6 +366,28 @@ export default function DashboardPage() {
                           <p key={i} className="text-xs" style={{ color: 'var(--secondary)' }}>• {ing}</p>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {/* How to cook */}
+                  {mealDetails.instructions && mealDetails.instructions.length > 0 && (
+                    <div>
+                      <p className="text-sm font-semibold mb-3" style={{ color: 'var(--foreground)' }}>How to cook</p>
+                      <ol className="space-y-3">
+                        {mealDetails.instructions.map((step, i) => (
+                          <li key={i} className="flex gap-3">
+                            <span
+                              className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+                              style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                            >
+                              {i + 1}
+                            </span>
+                            <p className="text-sm leading-relaxed pt-0.5" style={{ color: 'var(--foreground)' }}>
+                              {step}
+                            </p>
+                          </li>
+                        ))}
+                      </ol>
                     </div>
                   )}
                 </div>
