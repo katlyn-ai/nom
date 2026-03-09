@@ -1,42 +1,131 @@
-import { createClient } from '@/lib/supabase/server'
-import { redirect } from 'next/navigation'
+'use client'
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import Link from 'next/link'
-import { SparklesIcon, ShoppingCartIcon, BookOpenIcon, CreditCardIcon, CalendarDaysIcon, SunIcon, CloudSunIcon, MoonIcon, UtensilsIcon } from '@/components/icons'
+import { SparklesIcon, ShoppingCartIcon, BookOpenIcon, CreditCardIcon, CalendarDaysIcon, SunIcon, CloudSunIcon, MoonIcon, UtensilsIcon, XIcon, ClockIcon, FlameIcon, PackageIcon } from '@/components/icons'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+type Meal = {
+  id: string
+  day_index: number
+  meal_type: string
+  custom_name: string
+  cooking_time_minutes?: number
+  calories_per_serving?: number
+  ingredients?: string[]
+  recipes?: { name: string } | null
+}
+
+type MealDetails = {
+  cooking_time_minutes: number
+  calories_per_serving: number
+  ingredients: string[]
+  loading?: boolean
+}
+
 const MealTypeIcon = ({ type }: { type: string }) => {
   if (type === 'breakfast') return <SunIcon size={12} />
   if (type === 'lunch') return <CloudSunIcon size={12} />
   return <MoonIcon size={12} />
 }
 
-export default async function DashboardPage() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+export default function DashboardPage() {
+  const router = useRouter()
+  const supabase = createClient()
 
-  if (!user) redirect('/auth/login')
+  const [meals, setMeals] = useState<Meal[]>([])
+  const [totalSpent, setTotalSpent] = useState(0)
+  const [firstName, setFirstName] = useState('there')
+  const [loading, setLoading] = useState(true)
 
-  const { data: meals } = await supabase
-    .from('meal_plans')
-    .select('*, recipes(*)')
-    .eq('user_id', user.id)
-    .order('day_index', { ascending: true })
-    .limit(21)
+  // Slide-out state
+  const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null)
+  const [mealDetails, setMealDetails] = useState<MealDetails | null>(null)
+  const [pantryItems, setPantryItems] = useState<string[]>([])
 
-  const startOfMonth = new Date()
-  startOfMonth.setDate(1)
-  startOfMonth.setHours(0, 0, 0, 0)
+  useEffect(() => {
+    const load = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/auth/login'); return }
 
-  const { data: orders } = await supabase
-    .from('orders')
-    .select('amount')
-    .eq('user_id', user.id)
-    .gte('created_at', startOfMonth.toISOString())
+      const name = user.user_metadata?.full_name?.split(' ')[0] || 'there'
+      setFirstName(name)
 
-  const totalSpent = orders?.reduce((sum, o) => sum + (o.amount || 0), 0) ?? 0
-  const mealCount = meals?.length ?? 0
-  const firstName = user.user_metadata?.full_name?.split(' ')[0] || 'there'
+      const startOfMonth = new Date()
+      startOfMonth.setDate(1)
+      startOfMonth.setHours(0, 0, 0, 0)
+
+      const [{ data: mealsData }, { data: ordersData }, { data: pantryData }] = await Promise.all([
+        supabase.from('meal_plans').select('*, recipes(name)').eq('user_id', user.id).order('day_index').limit(21),
+        supabase.from('orders').select('amount').eq('user_id', user.id).gte('created_at', startOfMonth.toISOString()),
+        supabase.from('pantry_items').select('name').eq('user_id', user.id).eq('in_stock', true),
+      ])
+
+      setMeals(mealsData || [])
+      setTotalSpent(ordersData?.reduce((sum, o) => sum + (o.amount || 0), 0) ?? 0)
+      setPantryItems((pantryData || []).map(p => p.name.toLowerCase()))
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const openMeal = async (meal: Meal) => {
+    setSelectedMeal(meal)
+
+    // Show cached data immediately if available
+    if (meal.cooking_time_minutes && meal.calories_per_serving && meal.ingredients?.length) {
+      setMealDetails({
+        cooking_time_minutes: meal.cooking_time_minutes,
+        calories_per_serving: meal.calories_per_serving,
+        ingredients: meal.ingredients,
+      })
+      return
+    }
+
+    // Otherwise fetch from AI
+    setMealDetails({ cooking_time_minutes: 0, calories_per_serving: 0, ingredients: [], loading: true })
+    try {
+      const res = await fetch('/api/meal-details', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mealName: meal.custom_name || meal.recipes?.name,
+          mealPlanId: meal.id,
+        }),
+      })
+      const data = await res.json()
+      setMealDetails({ ...data, loading: false })
+      // Update local state so we don't re-fetch
+      setMeals(prev => prev.map(m => m.id === meal.id ? { ...m, ...data } : m))
+    } catch {
+      setMealDetails({ cooking_time_minutes: 30, calories_per_serving: 450, ingredients: [], loading: false })
+    }
+  }
+
+  const closeMeal = () => {
+    setSelectedMeal(null)
+    setMealDetails(null)
+  }
+
+  const mealCount = meals.length
+
+  const missingIngredients = mealDetails?.ingredients?.filter(ing => {
+    // Check if any pantry item name appears in this ingredient string
+    return !pantryItems.some(p => ing.toLowerCase().includes(p))
+  }) ?? []
+
+  if (loading) return (
+    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
+      <Nav />
+      <div className="md:ml-64 flex items-center justify-center h-64">
+        <p style={{ color: 'var(--muted)' }}>Loading…</p>
+      </div>
+    </div>
+  )
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
@@ -119,14 +208,15 @@ export default async function DashboardPage() {
                   {dayMeals.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {dayMeals.map(meal => (
-                        <span
+                        <button
                           key={meal.id}
-                          className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium"
+                          onClick={() => openMeal(meal)}
+                          className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium transition-all hover:opacity-80 active:scale-95"
                           style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
                         >
                           <MealTypeIcon type={meal.meal_type} />
                           {meal.recipes?.name || meal.custom_name || 'Meal'}
-                        </span>
+                        </button>
                       ))}
                     </div>
                   )}
@@ -156,6 +246,155 @@ export default async function DashboardPage() {
           </div>
         )}
       </main>
+
+      {/* Meal detail slide-out */}
+      {selectedMeal && (
+        <>
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 z-40"
+            style={{ background: 'rgba(0,0,0,0.35)' }}
+            onClick={closeMeal}
+          />
+          {/* Panel */}
+          <div
+            className="fixed right-0 top-0 h-full z-50 w-full max-w-sm flex flex-col"
+            style={{ background: 'var(--card)', boxShadow: '-4px 0 32px rgba(61,107,71,0.12)' }}
+          >
+            {/* Panel header */}
+            <div
+              className="px-6 pt-8 pb-5 flex items-start justify-between"
+              style={{ borderBottom: '1px solid var(--border)' }}
+            >
+              <div>
+                <div className="flex items-center gap-2 mb-1">
+                  <span
+                    className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium"
+                    style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                  >
+                    <MealTypeIcon type={selectedMeal.meal_type} />
+                    {selectedMeal.meal_type.charAt(0).toUpperCase() + selectedMeal.meal_type.slice(1)}
+                  </span>
+                  <span className="text-xs" style={{ color: 'var(--muted)' }}>
+                    {DAYS[selectedMeal.day_index]}
+                  </span>
+                </div>
+                <h2 className="text-xl font-semibold" style={{ color: 'var(--foreground)', fontFamily: 'var(--font-display)' }}>
+                  {selectedMeal.custom_name || selectedMeal.recipes?.name || 'Meal'}
+                </h2>
+              </div>
+              <button
+                onClick={closeMeal}
+                className="p-2 rounded-xl hover:opacity-70 transition-opacity"
+                style={{ color: 'var(--muted)' }}
+              >
+                <XIcon size={18} />
+              </button>
+            </div>
+
+            {/* Panel body */}
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              {mealDetails?.loading ? (
+                <div className="flex items-center gap-2 py-8 justify-center" style={{ color: 'var(--muted)' }}>
+                  <SparklesIcon size={16} />
+                  <span className="text-sm">Fetching details…</span>
+                </div>
+              ) : mealDetails ? (
+                <div className="space-y-6">
+                  {/* Quick stats */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div
+                      className="rounded-2xl p-4 flex items-center gap-3"
+                      style={{ background: 'var(--background)', border: '1px solid var(--border)' }}
+                    >
+                      <div style={{ color: 'var(--primary)' }}><ClockIcon size={18} /></div>
+                      <div>
+                        <p className="text-xs" style={{ color: 'var(--muted)' }}>Cook time</p>
+                        <p className="font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
+                          {mealDetails.cooking_time_minutes} min
+                        </p>
+                      </div>
+                    </div>
+                    <div
+                      className="rounded-2xl p-4 flex items-center gap-3"
+                      style={{ background: 'var(--background)', border: '1px solid var(--border)' }}
+                    >
+                      <div style={{ color: 'var(--accent)' }}><FlameIcon size={18} /></div>
+                      <div>
+                        <p className="text-xs" style={{ color: 'var(--muted)' }}>Per serving</p>
+                        <p className="font-semibold text-sm" style={{ color: 'var(--foreground)' }}>
+                          {mealDetails.calories_per_serving} kcal
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Ingredients */}
+                  {mealDetails.ingredients.length > 0 && (
+                    <div>
+                      <p className="text-sm font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Ingredients</p>
+                      <div className="space-y-2">
+                        {mealDetails.ingredients.map((ing, i) => {
+                          const inPantry = pantryItems.some(p => ing.toLowerCase().includes(p))
+                          return (
+                            <div key={i} className="flex items-center gap-2.5">
+                              <div
+                                className="w-2 h-2 rounded-full flex-shrink-0"
+                                style={{ background: inPantry ? 'var(--primary)' : 'var(--border)' }}
+                              />
+                              <span
+                                className="text-sm"
+                                style={{ color: inPantry ? 'var(--foreground)' : 'var(--muted)' }}
+                              >
+                                {ing}
+                              </span>
+                              {inPantry && (
+                                <span className="text-xs ml-auto" style={{ color: 'var(--primary)' }}>in pantry</span>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Missing from pantry */}
+                  {pantryItems.length > 0 && missingIngredients.length > 0 && (
+                    <div
+                      className="rounded-2xl p-4"
+                      style={{ background: 'var(--secondary-light)', border: '1px solid var(--border)' }}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <PackageIcon size={14} />
+                        <p className="text-xs font-semibold" style={{ color: 'var(--secondary)' }}>
+                          {missingIngredients.length} ingredient{missingIngredients.length > 1 ? 's' : ''} not in pantry
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        {missingIngredients.map((ing, i) => (
+                          <p key={i} className="text-xs" style={{ color: 'var(--secondary)' }}>• {ing}</p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {/* Footer actions */}
+            <div className="px-6 py-5" style={{ borderTop: '1px solid var(--border)' }}>
+              <Link
+                href="/shopping"
+                className="block w-full py-3 rounded-2xl text-white text-sm font-medium text-center"
+                style={{ background: 'var(--gradient-primary)' }}
+              >
+                <ShoppingCartIcon size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+                Add missing to shopping list
+              </Link>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

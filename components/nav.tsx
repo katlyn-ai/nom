@@ -4,12 +4,13 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
-import { HomeIcon, UtensilsIcon, BookOpenIcon, ShoppingCartIcon, SettingsIcon, LogOutIcon } from './icons'
+import { HomeIcon, UtensilsIcon, BookOpenIcon, ShoppingCartIcon, SettingsIcon, LogOutIcon, PackageIcon } from './icons'
 
 const navItems = [
   { href: '/dashboard', label: 'Home', Icon: HomeIcon },
   { href: '/meals', label: 'Meals', Icon: UtensilsIcon },
   { href: '/recipes', label: 'Recipes', Icon: BookOpenIcon },
+  { href: '/pantry', label: 'Pantry', Icon: PackageIcon },
   { href: '/shopping', label: 'Shopping', Icon: ShoppingCartIcon },
   { href: '/settings', label: 'Settings', Icon: SettingsIcon },
 ]

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Nav from '@/components/nav'
-import { SparklesIcon, CalendarIcon, SunIcon, CloudSunIcon, MoonIcon, XIcon } from '@/components/icons'
+import { SparklesIcon, CalendarIcon, SunIcon, CloudSunIcon, MoonIcon, XIcon, ClockIcon, FlameIcon, PackageIcon } from '@/components/icons'
 
 function CheckIcon({ size = 13 }: { size?: number }) {
   return (
@@ -24,9 +24,10 @@ const FALLBACK_MEALS = [
   'Salmon with Rice', 'Tomato Soup', 'Greek Salad', 'Beef Tacos',
 ]
 
-type Meal = { id?: string; day_index: number; meal_type: string; custom_name: string }
+type Meal = { id?: string; day_index: number; meal_type: string; custom_name: string; cooking_time_minutes?: number; calories_per_serving?: number; ingredients?: string[] }
 type CalendarEvent = { dayIndex: number; summary: string; isNightOff: boolean }
 type PlanSettings = { plan_breakfast: boolean; plan_lunch: boolean; plan_dinner: boolean }
+type TooltipDetails = { cooking_time_minutes: number; calories_per_serving: number; ingredients: string[]; loading?: boolean }
 
 export default function MealsPage() {
   const [meals, setMeals] = useState<Meal[]>([])
@@ -42,6 +43,10 @@ export default function MealsPage() {
   const [generateError, setGenerateError] = useState('')
   // localEdits tracks unsaved typing: key = `${dayIndex}-${mealType}`
   const [localEdits, setLocalEdits] = useState<Record<string, string>>({})
+  // Pantry + hover tooltip
+  const [pantryItems, setPantryItems] = useState<string[]>([])
+  const [hoverKey, setHoverKey] = useState<string | null>(null)
+  const [tooltipDetails, setTooltipDetails] = useState<Record<string, TooltipDetails>>({})
   const supabase = createClient()
 
   const slotKey = (dayIndex: number, mealType: string) => `${dayIndex}-${mealType}`
@@ -73,12 +78,14 @@ export default function MealsPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
 
-      const [{ data: mealData }, { data: settingsData }] = await Promise.all([
+      const [{ data: mealData }, { data: settingsData }, { data: pantryData }] = await Promise.all([
         supabase.from('meal_plans').select('*').eq('user_id', user.id).order('day_index'),
         supabase.from('settings').select('plan_breakfast, plan_lunch, plan_dinner').eq('user_id', user.id).single(),
+        supabase.from('pantry_items').select('name').eq('user_id', user.id).eq('in_stock', true),
       ])
 
       setMeals(mealData || [])
+      setPantryItems((pantryData || []).map(p => p.name.toLowerCase()))
       if (settingsData) {
         setPlanSettings({
           plan_breakfast: settingsData.plan_breakfast ?? true,
@@ -213,6 +220,35 @@ export default function MealsPage() {
     }
     setSuggestions([])
     setShowPanel(false)
+  }
+
+  const handleHover = async (dayIndex: number, mealType: string) => {
+    const meal = meals.find(m => m.day_index === dayIndex && m.meal_type === mealType)
+    if (!meal?.custom_name) return
+    const k = slotKey(dayIndex, mealType)
+    setHoverKey(k)
+
+    if (tooltipDetails[k]) return // already fetched
+
+    // Use cached DB data if present
+    if (meal.cooking_time_minutes && meal.calories_per_serving && meal.ingredients?.length) {
+      setTooltipDetails(prev => ({ ...prev, [k]: { cooking_time_minutes: meal.cooking_time_minutes!, calories_per_serving: meal.calories_per_serving!, ingredients: meal.ingredients! } }))
+      return
+    }
+
+    setTooltipDetails(prev => ({ ...prev, [k]: { cooking_time_minutes: 0, calories_per_serving: 0, ingredients: [], loading: true } }))
+    try {
+      const res = await fetch('/api/meal-details', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mealName: meal.custom_name, mealPlanId: meal.id }),
+      })
+      const data = await res.json()
+      setTooltipDetails(prev => ({ ...prev, [k]: { ...data, loading: false } }))
+      setMeals(prev => prev.map(m => m.day_index === dayIndex && m.meal_type === mealType ? { ...m, ...data } : m))
+    } catch {
+      setTooltipDetails(prev => ({ ...prev, [k]: { cooking_time_minutes: 30, calories_per_serving: 450, ingredients: [], loading: false } }))
+    }
   }
 
   const syncCalendar = async () => {
@@ -427,16 +463,26 @@ export default function MealsPage() {
                       const hasMeal = !!getMealValue(dayIndex, key)
                       const dirty = isDirty(dayIndex, key)
                       const displayVal = getDisplayValue(dayIndex, key)
+                      const sk = slotKey(dayIndex, key)
+                      const tip = tooltipDetails[sk]
+                      const showTip = hoverKey === sk && hasMeal && !dirty && tip
+                      const missingIngs = tip?.ingredients?.filter(ing =>
+                        !pantryItems.some(p => ing.toLowerCase().includes(p))
+                      ) ?? []
                       return (
-                        <div key={key}>
+                        <div key={key} className="relative">
                           <p className="flex items-center gap-1 text-xs mb-1.5 font-medium" style={{ color: 'var(--muted)' }}>
                             <Icon size={11} /> {label}
                           </p>
-                          <div className="relative flex items-center">
+                          <div
+                            className="relative flex items-center"
+                            onMouseEnter={() => hasMeal && !dirty && handleHover(dayIndex, key)}
+                            onMouseLeave={() => setHoverKey(null)}
+                          >
                             <input
                               type="text"
                               value={displayVal}
-                              onChange={e => setLocalEdits(prev => ({ ...prev, [slotKey(dayIndex, key)]: e.target.value }))}
+                              onChange={e => setLocalEdits(prev => ({ ...prev, [sk]: e.target.value }))}
                               onKeyDown={e => e.key === 'Enter' && handleSaveSlot(dayIndex, key)}
                               placeholder="Add meal…"
                               className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none"
@@ -467,6 +513,53 @@ export default function MealsPage() {
                               >
                                 <XIcon size={13} />
                               </button>
+                            )}
+
+                            {/* Hover tooltip */}
+                            {showTip && (
+                              <div
+                                className="absolute bottom-full left-0 mb-2 z-30 w-56 rounded-2xl p-3 text-xs"
+                                style={{ background: 'var(--foreground)', color: 'var(--background)', boxShadow: 'var(--shadow-lg)', pointerEvents: 'none' }}
+                              >
+                                {tip.loading ? (
+                                  <p className="opacity-60">Loading details…</p>
+                                ) : (
+                                  <>
+                                    <div className="flex items-center gap-3 mb-2.5">
+                                      {tip.cooking_time_minutes > 0 && (
+                                        <span className="flex items-center gap-1 opacity-90">
+                                          <ClockIcon size={11} /> {tip.cooking_time_minutes} min
+                                        </span>
+                                      )}
+                                      {tip.calories_per_serving > 0 && (
+                                        <span className="flex items-center gap-1 opacity-90">
+                                          <FlameIcon size={11} /> {tip.calories_per_serving} kcal
+                                        </span>
+                                      )}
+                                    </div>
+                                    {missingIngs.length > 0 ? (
+                                      <div>
+                                        <p className="flex items-center gap-1 mb-1 opacity-70">
+                                          <PackageIcon size={11} /> Missing from pantry:
+                                        </p>
+                                        {missingIngs.slice(0, 4).map((ing, i) => (
+                                          <p key={i} className="opacity-80 truncate">• {ing}</p>
+                                        ))}
+                                        {missingIngs.length > 4 && (
+                                          <p className="opacity-50">+{missingIngs.length - 4} more</p>
+                                        )}
+                                      </div>
+                                    ) : pantryItems.length > 0 ? (
+                                      <p className="opacity-70 flex items-center gap-1"><PackageIcon size={11} /> All ingredients in pantry</p>
+                                    ) : null}
+                                  </>
+                                )}
+                                {/* Arrow */}
+                                <div
+                                  className="absolute left-4 -bottom-1.5 w-3 h-3 rotate-45"
+                                  style={{ background: 'var(--foreground)' }}
+                                />
+                              </div>
                             )}
                           </div>
                         </div>
