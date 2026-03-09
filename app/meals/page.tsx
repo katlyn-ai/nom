@@ -3,7 +3,15 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Nav from '@/components/nav'
-import { SparklesIcon, CalendarIcon, SunIcon, CloudSunIcon, MoonIcon, XIcon, TrashIcon } from '@/components/icons'
+import { SparklesIcon, CalendarIcon, SunIcon, CloudSunIcon, MoonIcon, XIcon } from '@/components/icons'
+
+function CheckIcon({ size = 13 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  )
+}
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const ALL_MEAL_TYPES = [
@@ -32,7 +40,24 @@ export default function MealsPage() {
   const [prompt, setPrompt] = useState('')
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [generateError, setGenerateError] = useState('')
+  // localEdits tracks unsaved typing: key = `${dayIndex}-${mealType}`
+  const [localEdits, setLocalEdits] = useState<Record<string, string>>({})
   const supabase = createClient()
+
+  const slotKey = (dayIndex: number, mealType: string) => `${dayIndex}-${mealType}`
+
+  const getDisplayValue = (dayIndex: number, mealType: string) => {
+    const k = slotKey(dayIndex, mealType)
+    return k in localEdits ? localEdits[k] : (getMealValue(dayIndex, mealType) ?? '')
+  }
+
+  const getMealValue = (dayIndex: number, mealType: string) =>
+    meals.find(m => m.day_index === dayIndex && m.meal_type === mealType)?.custom_name ?? ''
+
+  const isDirty = (dayIndex: number, mealType: string) => {
+    const k = slotKey(dayIndex, mealType)
+    return k in localEdits && localEdits[k] !== getMealValue(dayIndex, mealType)
+  }
 
   const activeMealTypes = ALL_MEAL_TYPES.filter(mt =>
     mt.key === 'breakfast' ? planSettings.plan_breakfast :
@@ -71,7 +96,15 @@ export default function MealsPage() {
     if (!user) return
     const uid = user.id
 
-    const existing = meals.find(m => m.day_index === dayIndex && m.meal_type === mealType)
+    // Always fetch fresh from DB to avoid stale-closure duplicate inserts
+    const { data: existing } = await supabase
+      .from('meal_plans')
+      .select('id')
+      .eq('user_id', uid)
+      .eq('day_index', dayIndex)
+      .eq('meal_type', mealType)
+      .maybeSingle()
+
     if (existing?.id) {
       await supabase.from('meal_plans').update({ custom_name: name }).eq('id', existing.id)
       setMeals(prev => prev.map(m => m.id === existing.id ? { ...m, custom_name: name } : m))
@@ -81,13 +114,25 @@ export default function MealsPage() {
       }).select().single()
       if (data) setMeals(prev => [...prev, data])
     }
+
+    // Clear local edit for this slot
+    setLocalEdits(prev => { const n = { ...prev }; delete n[slotKey(dayIndex, mealType)]; return n })
   }
 
   const deleteMeal = async (dayIndex: number, mealType: string) => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
     const existing = meals.find(m => m.day_index === dayIndex && m.meal_type === mealType)
     if (!existing?.id) return
     await supabase.from('meal_plans').delete().eq('id', existing.id)
     setMeals(prev => prev.filter(m => m.id !== existing.id))
+    setLocalEdits(prev => { const n = { ...prev }; delete n[slotKey(dayIndex, mealType)]; return n })
+  }
+
+  const handleSaveSlot = (dayIndex: number, mealType: string) => {
+    const val = getDisplayValue(dayIndex, mealType).trim()
+    if (val) saveMeal(dayIndex, mealType, val)
+    else deleteMeal(dayIndex, mealType)
   }
 
   const toggleMealType = async (key: string) => {
@@ -184,9 +229,6 @@ export default function MealsPage() {
     } catch { /* ignore */ }
     setSyncing(false)
   }
-
-  const getMeal = (dayIndex: number, mealType: string) =>
-    meals.find(m => m.day_index === dayIndex && m.meal_type === mealType)
 
   const gridCols = activeMealTypes.length === 1 ? 'grid-cols-1'
     : activeMealTypes.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
@@ -382,8 +424,9 @@ export default function MealsPage() {
                 ) : (
                   <div className={`grid ${gridCols} gap-3`}>
                     {activeMealTypes.map(({ key, label, Icon }) => {
-                      const existing = getMeal(dayIndex, key)
-                      const hasMeal = !!existing?.custom_name
+                      const hasMeal = !!getMealValue(dayIndex, key)
+                      const dirty = isDirty(dayIndex, key)
+                      const displayVal = getDisplayValue(dayIndex, key)
                       return (
                         <div key={key}>
                           <p className="flex items-center gap-1 text-xs mb-1.5 font-medium" style={{ color: 'var(--muted)' }}>
@@ -391,20 +434,31 @@ export default function MealsPage() {
                           </p>
                           <div className="relative flex items-center">
                             <input
-                              key={existing?.id || `${dayIndex}-${key}-empty`}
                               type="text"
-                              defaultValue={existing?.custom_name || ''}
+                              value={displayVal}
+                              onChange={e => setLocalEdits(prev => ({ ...prev, [slotKey(dayIndex, key)]: e.target.value }))}
+                              onKeyDown={e => e.key === 'Enter' && handleSaveSlot(dayIndex, key)}
                               placeholder="Add meal…"
-                              onBlur={e => { if (e.target.value.trim()) saveMeal(dayIndex, key, e.target.value.trim()) }}
                               className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none"
                               style={{
-                                borderColor: 'var(--border)',
+                                borderColor: dirty ? 'var(--primary)' : 'var(--border)',
                                 background: 'var(--background)',
                                 color: 'var(--foreground)',
-                                paddingRight: hasMeal ? '2rem' : undefined,
+                                paddingRight: (dirty || hasMeal) ? '2rem' : undefined,
+                                transition: 'border-color 0.15s',
                               }}
                             />
-                            {hasMeal && (
+                            {dirty && (
+                              <button
+                                onClick={() => handleSaveSlot(dayIndex, key)}
+                                className="absolute right-2.5 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
+                                style={{ color: 'var(--primary)' }}
+                                title="Save meal"
+                              >
+                                <CheckIcon size={13} />
+                              </button>
+                            )}
+                            {!dirty && hasMeal && (
                               <button
                                 onClick={() => deleteMeal(dayIndex, key)}
                                 className="absolute right-2.5 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
