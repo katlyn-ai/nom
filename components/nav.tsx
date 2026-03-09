@@ -41,15 +41,36 @@ export default function Nav() {
         style={{ background: 'var(--card)', boxShadow: '2px 0 24px rgba(61,107,71,0.08)', borderRight: '1px solid var(--border)' }}
       >
         {/* Logo */}
-        <div className="px-6 py-6 mb-2" style={{ borderBottom: '1px solid var(--border)' }}>
-          <div
-            className="text-3xl font-bold tracking-tight"
-            style={{ fontFamily: 'var(--font-display)', background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
-          >
-            NOM
+        <Link href="/dashboard" className="px-6 py-6 mb-2 flex items-center gap-3 hover:opacity-85 transition-opacity" style={{ borderBottom: '1px solid var(--border)' }}>
+          {/* Logo mark */}
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+            <rect width="40" height="40" rx="12" fill="url(#nomLogoGrad)" />
+            <defs>
+              <linearGradient id="nomLogoGrad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stopColor="#2D5438" />
+                <stop offset="100%" stopColor="#4E7E5A" />
+              </linearGradient>
+            </defs>
+            {/* Bowl body */}
+            <path d="M11 22 Q11 30 20 30 Q29 30 29 22 Z" fill="white" opacity="0.95" />
+            {/* Bowl rim */}
+            <line x1="10" y1="22" x2="30" y2="22" stroke="white" strokeWidth="1.8" strokeLinecap="round" opacity="0.55" />
+            {/* Steam — three wavy lines */}
+            <path d="M15 19 Q14 16.5 15 14" stroke="white" strokeWidth="1.6" strokeLinecap="round" fill="none" opacity="0.8" />
+            <path d="M20 18 Q19 15.5 20 13" stroke="white" strokeWidth="1.6" strokeLinecap="round" fill="none" opacity="0.8" />
+            <path d="M25 19 Q24 16.5 25 14" stroke="white" strokeWidth="1.6" strokeLinecap="round" fill="none" opacity="0.8" />
+          </svg>
+          {/* Wordmark */}
+          <div>
+            <div
+              className="text-2xl font-bold tracking-tight leading-none"
+              style={{ fontFamily: 'var(--font-display)', background: 'var(--gradient-primary)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}
+            >
+              NOM
+            </div>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>Meal planning, simplified</p>
           </div>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>Meal planning, simplified</p>
-        </div>
+        </Link>
 
         {/* Nav items */}
         <nav className="flex-1 px-3 py-3 space-y-0.5">
