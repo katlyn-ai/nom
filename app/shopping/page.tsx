@@ -41,6 +41,14 @@ export default function ShoppingPage() {
   const [selectedStore, setSelectedStore] = useState<StoreResult | null>(null)
   const [compareError, setCompareError] = useState<string | null>(null)
 
+  // Claude in Chrome extension detection
+  // null = checking, true = detected, false = not found
+  const [extensionDetected, setExtensionDetected] = useState<boolean | null>(null)
+  const [promptCopied, setPromptCopied] = useState(false)
+
+  const EXTENSION_ID = 'pjmhcfonfhabnfbbembbndmgjfhkfjob'
+  const EXTENSION_STORE_URL = `https://chromewebstore.google.com/detail/claude/${EXTENSION_ID}`
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -72,6 +80,37 @@ export default function ShoppingPage() {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  // Detect Claude in Chrome extension on mount
+  useEffect(() => {
+    const detect = () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cr = (window as any).chrome
+        if (!cr?.runtime?.sendMessage) {
+          setExtensionDetected(false)
+          return
+        }
+        cr.runtime.sendMessage(EXTENSION_ID, { type: 'ping' }, () => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const err = (cr.runtime as any).lastError
+          // lastError means extension didn't respond — but it could still be
+          // installed without externally_connectable. We check if we're at
+          // least on Chrome (cr exists) and fall back to a manual check.
+          if (err?.message?.includes('not exist') || err?.message?.includes('cannot')) {
+            setExtensionDetected(false)
+          } else {
+            setExtensionDetected(true)
+          }
+        })
+        // Timeout fallback — if sendMessage hangs, assume not detected
+        setTimeout(() => setExtensionDetected(prev => prev === null ? false : prev), 1500)
+      } catch {
+        setExtensionDetected(false)
+      }
+    }
+    detect()
   }, [])
 
   const addItem = async () => {
@@ -179,6 +218,17 @@ export default function ShoppingPage() {
     }
 
     window.open(store.url, '_blank')
+  }
+
+  const buildCartPrompt = (store: StoreResult) => {
+    const list = items.filter(i => !i.checked).map(i => `- ${i.name}`).join('\n')
+    return `Please add these items to my ${store.name} cart:\n${list}\n\nIf I'm not logged in yet, please wait for me to log in first, then add each item to my cart one by one.`
+  }
+
+  const copyPrompt = (store: StoreResult) => {
+    navigator.clipboard.writeText(buildCartPrompt(store))
+    setPromptCopied(true)
+    setTimeout(() => setPromptCopied(false), 2500)
   }
 
   const closeCompare = () => {
@@ -419,31 +469,90 @@ export default function ShoppingPage() {
                 {/* Confirmation — store selected */}
                 {!comparing && selectedStore && (
                   <div>
+                    {/* Store + price summary */}
                     <div
-                      className="rounded-2xl p-5 mb-5 text-center"
-                      style={{ background: selectedStore.color + '15', border: `1.5px solid ${selectedStore.color}30` }}
+                      className="rounded-2xl p-5 mb-4 text-center"
+                      style={{ background: selectedStore.color + '12', border: `1.5px solid ${selectedStore.color}35` }}
                     >
-                      <p className="text-3xl mb-2">🎉</p>
                       <p className="font-semibold text-lg" style={{ color: selectedStore.color, fontFamily: 'var(--font-display)' }}>
-                        Opening {selectedStore.name}
-                      </p>
-                      <p className="text-2xl font-bold mt-2" style={{ color: 'var(--foreground)', fontFamily: 'var(--font-display)' }}>
-                        ≈ €{selectedStore.subtotal.toFixed(2)}
+                        {selectedStore.name} · ≈ €{selectedStore.subtotal.toFixed(2)}
                       </p>
                       {compareResults && (
                         (() => {
                           const savings = Math.max(...compareResults.map(s => s.subtotal)) - selectedStore.subtotal
                           return savings > 0.01 ? (
-                            <p className="text-sm mt-1 font-medium" style={{ color: selectedStore.color }}>
+                            <p className="text-sm mt-0.5 font-medium" style={{ color: selectedStore.color }}>
                               Saving ≈ €{savings.toFixed(2)} vs most expensive
                             </p>
                           ) : null
                         })()
                       )}
-                      <p className="text-xs mt-3" style={{ color: 'var(--muted)' }}>
-                        Log in at {selectedStore.name} and add the items below to your cart
-                      </p>
                     </div>
+
+                    {/* Extension detection block */}
+                    {extensionDetected === false && (
+                      <div
+                        className="rounded-2xl p-4 mb-4"
+                        style={{ background: '#FFF7ED', border: '1.5px solid #FED7AA' }}
+                      >
+                        <p className="font-semibold text-sm mb-1" style={{ color: '#C2410C' }}>
+                          🧩 Get Claude in Chrome to auto-fill your cart
+                        </p>
+                        <p className="text-xs mb-3" style={{ color: '#9A3412' }}>
+                          The Claude browser extension can log into {selectedStore.name} and add all your items to the cart automatically. Free to install.
+                        </p>
+                        <a
+                          href={EXTENSION_STORE_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-center gap-1.5 w-full py-2.5 rounded-xl text-white text-sm font-semibold"
+                          style={{ background: '#EA580C' }}
+                        >
+                          <ExternalLinkIcon size={13} />
+                          Install Claude in Chrome — it&apos;s free
+                        </a>
+                        <button
+                          onClick={() => setExtensionDetected(true)}
+                          className="w-full mt-2 py-2 text-xs font-medium"
+                          style={{ color: '#9A3412' }}
+                        >
+                          I already have it ↓
+                        </button>
+                      </div>
+                    )}
+
+                    {extensionDetected === true && (
+                      <div
+                        className="rounded-2xl p-4 mb-4"
+                        style={{ background: 'var(--primary-light)', border: '1.5px solid var(--primary)' }}
+                      >
+                        <p className="font-semibold text-sm mb-1" style={{ color: 'var(--primary)' }}>
+                          ✨ Claude is ready to fill your cart
+                        </p>
+                        <p className="text-xs mb-3" style={{ color: 'var(--primary)' }}>
+                          1. Open {selectedStore.name} (tab already opened)<br />
+                          2. Log in if needed<br />
+                          3. Open Claude in Chrome and paste this prompt:
+                        </p>
+                        <div
+                          className="rounded-xl p-3 mb-3 text-xs font-mono leading-relaxed"
+                          style={{ background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border)', whiteSpace: 'pre-wrap' }}
+                        >
+                          {buildCartPrompt(selectedStore)}
+                        </div>
+                        <button
+                          onClick={() => copyPrompt(selectedStore)}
+                          className="w-full py-2.5 rounded-xl text-sm font-semibold"
+                          style={{
+                            background: promptCopied ? '#4A7C59' : 'var(--primary)',
+                            color: 'white',
+                            transition: 'background 0.2s',
+                          }}
+                        >
+                          {promptCopied ? '✓ Copied!' : 'Copy prompt'}
+                        </button>
+                      </div>
+                    )}
 
                     {/* Shopping list reference */}
                     <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>Your list</p>
@@ -456,9 +565,13 @@ export default function ShoppingPage() {
                         >
                           <div className="w-4 h-4 rounded border flex-shrink-0" style={{ borderColor: 'var(--border)' }} />
                           <span className="text-sm" style={{ color: 'var(--foreground)' }}>{item.name}</span>
-                          {selectedStore.items.find(si => si.name.toLowerCase().includes(item.name.toLowerCase().slice(0, 4))) && (
+                          {selectedStore.items.find(si =>
+                            si.name.toLowerCase().includes(item.name.toLowerCase().slice(0, 4))
+                          ) && (
                             <span className="text-xs ml-auto" style={{ color: 'var(--muted)' }}>
-                              ≈ €{selectedStore.items.find(si => si.name.toLowerCase().includes(item.name.toLowerCase().slice(0, 4)))?.price.toFixed(2)}
+                              ≈ €{selectedStore.items.find(si =>
+                                si.name.toLowerCase().includes(item.name.toLowerCase().slice(0, 4))
+                              )?.price.toFixed(2)}
                             </span>
                           )}
                         </div>
