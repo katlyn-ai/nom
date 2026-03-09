@@ -74,35 +74,29 @@ ${context}`
     })
 
     if (!response.ok) {
-      const err = await response.text()
-      console.error('Anthropic API error:', response.status, err)
-      return NextResponse.json({ meals: FALLBACK, debug: `HTTP ${response.status}: ${err}` })
+      console.error('Anthropic API error:', response.status)
+      return NextResponse.json({ meals: FALLBACK })
     }
 
     const data = await response.json()
 
-    // If the API returned an error object instead of a message
     if (data.type === 'error') {
       console.error('Anthropic error:', data.error)
-      return NextResponse.json({ meals: FALLBACK, debug: `API error: ${JSON.stringify(data.error)}` })
+      return NextResponse.json({ meals: FALLBACK })
     }
 
     const text = data.content?.[0]?.text || ''
-    if (!text) return NextResponse.json({ meals: FALLBACK, debug: `No text in response: ${JSON.stringify(data)}` })
+    if (!text) return NextResponse.json({ meals: FALLBACK })
 
     const match = text.match(/\[[\s\S]*\]/)
     let meals: string[] = []
     try {
       meals = match ? JSON.parse(match[0]) : []
-    } catch (e) {
-      return NextResponse.json({ meals: FALLBACK, debug: `JSON parse failed: ${text}` })
+    } catch {
+      return NextResponse.json({ meals: FALLBACK })
     }
 
-    if (meals.length === 0) {
-      return NextResponse.json({ meals: FALLBACK, debug: `AI text was: ${text}` })
-    }
-
-    return NextResponse.json({ meals })
+    return NextResponse.json({ meals: meals.length > 0 ? meals : FALLBACK })
   } catch (error) {
     console.error('AI error:', error)
     return NextResponse.json({ meals: FALLBACK })

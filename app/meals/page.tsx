@@ -82,7 +82,6 @@ export default function MealsPage() {
   }
 
   const handleGenerate = async () => {
-    console.log('handleGenerate called, prompt:', prompt)
     setGenerating(true)
     setSuggestions([])
     setGenerateError('')
@@ -90,21 +89,17 @@ export default function MealsPage() {
 
     try {
       const { data: { user } } = await supabase.auth.getUser()
-      console.log('user:', user?.id ?? 'null')
       if (!user) {
-        console.log('no user — using fallback')
         setSuggestions(FALLBACK_MEALS)
         setGenerating(false)
         return
       }
 
-      console.log('fetching suggest-meals...')
       const res = await fetch('/api/suggest-meals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, userId: user.id }),
       })
-      console.log('suggest-meals status:', res.status)
 
       if (!res.ok) {
         setSuggestions(FALLBACK_MEALS)
@@ -113,7 +108,6 @@ export default function MealsPage() {
       }
 
       const data = await res.json()
-      console.log('suggest-meals response:', JSON.stringify(data))
       const meals = Array.isArray(data.meals) && data.meals.length > 0
         ? data.meals
         : FALLBACK_MEALS
