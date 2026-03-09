@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import Link from 'next/link'
-import { SparklesIcon, ShoppingCartIcon, BookOpenIcon, CreditCardIcon, CalendarDaysIcon, SunIcon, CloudSunIcon, MoonIcon, UtensilsIcon, XIcon, ClockIcon, FlameIcon, PackageIcon, RefreshIcon } from '@/components/icons'
+import { SparklesIcon, ShoppingCartIcon, BookOpenIcon, CreditCardIcon, CalendarDaysIcon, SunIcon, CloudSunIcon, MoonIcon, UtensilsIcon, XIcon, ClockIcon, FlameIcon, PackageIcon, RefreshIcon, PiggyBankIcon } from '@/components/icons'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -40,6 +40,7 @@ export default function DashboardPage() {
 
   const [meals, setMeals] = useState<Meal[]>([])
   const [totalSpent, setTotalSpent] = useState(0)
+  const [totalSaved, setTotalSaved] = useState(0)
   const [firstName, setFirstName] = useState('there')
   const [loading, setLoading] = useState(true)
 
@@ -81,14 +82,16 @@ export default function DashboardPage() {
       startOfMonth.setDate(1)
       startOfMonth.setHours(0, 0, 0, 0)
 
-      const [{ data: mealsData }, { data: ordersData }, { data: pantryData }] = await Promise.all([
+      const [{ data: mealsData }, { data: ordersData }, { data: pantryData }, { data: savingsData }] = await Promise.all([
         supabase.from('meal_plans').select('*, recipes(name)').eq('user_id', user.id).order('day_index').limit(21),
         supabase.from('orders').select('amount').eq('user_id', user.id).gte('created_at', startOfMonth.toISOString()),
         supabase.from('pantry_items').select('name').eq('user_id', user.id).eq('in_stock', true),
+        supabase.from('shopping_sessions').select('savings_vs_expensive').eq('user_id', user.id).gte('created_at', startOfMonth.toISOString()),
       ])
 
       setMeals(mealsData || [])
       setTotalSpent(ordersData?.reduce((sum, o) => sum + (o.amount || 0), 0) ?? 0)
+      setTotalSaved(savingsData?.reduce((sum, s) => sum + (s.savings_vs_expensive || 0), 0) ?? 0)
       setPantryItems((pantryData || []).map(p => p.name.toLowerCase()))
       setLoading(false)
     }
@@ -173,17 +176,17 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 gap-4 mb-7">
+        <div className="grid grid-cols-2 gap-4 mb-4">
           {[
-            { icon: <CreditCardIcon size={18} />, label: 'Spent this month', value: `€${totalSpent.toFixed(2)}` },
-            { icon: <CalendarDaysIcon size={18} />, label: 'Meals planned', value: `${mealCount}` },
+            { icon: <CreditCardIcon size={18} />, label: 'Spent this month', value: `€${totalSpent.toFixed(2)}`, color: 'var(--primary)' },
+            { icon: <CalendarDaysIcon size={18} />, label: 'Meals planned', value: `${mealCount}`, color: 'var(--primary)' },
           ].map(stat => (
             <div
               key={stat.label}
               className="rounded-2xl p-5"
               style={{ background: 'var(--card)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border)' }}
             >
-              <div className="mb-2" style={{ color: 'var(--primary)' }}>{stat.icon}</div>
+              <div className="mb-2" style={{ color: stat.color }}>{stat.icon}</div>
               <p className="text-xs font-medium uppercase tracking-wide mb-1" style={{ color: 'var(--muted)' }}>
                 {stat.label}
               </p>
@@ -194,8 +197,29 @@ export default function DashboardPage() {
           ))}
         </div>
 
+        {/* Savings banner */}
+        {totalSaved > 0 && (
+          <div
+            className="rounded-2xl p-5 mb-4 flex items-center gap-4"
+            style={{ background: 'var(--primary-light)', border: '1px solid var(--primary)' }}
+          >
+            <div style={{ color: 'var(--primary)' }}><PiggyBankIcon size={28} /></div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--primary)' }}>
+                Smart shopping savings
+              </p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--primary)', fontFamily: 'var(--font-display)' }}>
+                €{totalSaved.toFixed(2)} saved this month
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--primary)' }}>
+                By choosing the cheapest store each time
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* This week */}
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 mt-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>This week</h2>
           <Link href="/meals" className="text-sm font-medium px-3 py-1.5 rounded-xl" style={{ color: 'var(--primary)', background: 'var(--primary-light)' }}>
             Edit →
