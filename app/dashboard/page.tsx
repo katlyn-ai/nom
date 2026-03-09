@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import Link from 'next/link'
-import { SparklesIcon, ShoppingCartIcon, BookOpenIcon, CreditCardIcon, CalendarDaysIcon, SunIcon, CloudSunIcon, MoonIcon, UtensilsIcon, XIcon, ClockIcon, FlameIcon, PackageIcon } from '@/components/icons'
+import { SparklesIcon, ShoppingCartIcon, BookOpenIcon, CreditCardIcon, CalendarDaysIcon, SunIcon, CloudSunIcon, MoonIcon, UtensilsIcon, XIcon, ClockIcon, FlameIcon, PackageIcon, RefreshIcon } from '@/components/icons'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -47,6 +47,27 @@ export default function DashboardPage() {
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null)
   const [mealDetails, setMealDetails] = useState<MealDetails | null>(null)
   const [pantryItems, setPantryItems] = useState<string[]>([])
+  // swappedIngredients: maps original ingredient → substitute
+  const [swappedIngredients, setSwappedIngredients] = useState<Record<string, string | 'loading'>>({})
+
+  const swapIngredient = async (original: string) => {
+    if (!selectedMeal || swappedIngredients[original]) return
+    setSwappedIngredients(prev => ({ ...prev, [original]: 'loading' }))
+    try {
+      const res = await fetch('/api/swap-ingredient', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ingredient: original,
+          mealName: selectedMeal.custom_name || selectedMeal.recipes?.name,
+        }),
+      })
+      const data = await res.json()
+      setSwappedIngredients(prev => ({ ...prev, [original]: data.substitute || original }))
+    } catch {
+      setSwappedIngredients(prev => { const n = { ...prev }; delete n[original]; return n })
+    }
+  }
 
   useEffect(() => {
     const load = async () => {
@@ -100,6 +121,7 @@ export default function DashboardPage() {
   const closeMeal = () => {
     setSelectedMeal(null)
     setMealDetails(null)
+    setSwappedIngredients({})
   }
 
   const mealCount = meals.length
@@ -323,25 +345,54 @@ export default function DashboardPage() {
                   {/* Ingredients */}
                   {mealDetails.ingredients.length > 0 && (
                     <div>
-                      <p className="text-sm font-semibold mb-3" style={{ color: 'var(--foreground)' }}>Ingredients</p>
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Ingredients</p>
+                        <p className="text-xs" style={{ color: 'var(--muted)' }}>↻ to swap</p>
+                      </div>
                       <div className="space-y-2">
                         {mealDetails.ingredients.map((ing, i) => {
                           const inPantry = pantryItems.some(p => ing.toLowerCase().includes(p))
+                          const swapState = swappedIngredients[ing]
+                          const isSwapping = swapState === 'loading'
+                          const swapped = swapState && swapState !== 'loading'
                           return (
-                            <div key={i} className="flex items-center gap-2.5">
+                            <div key={i} className="flex items-center gap-2.5 group/ing">
                               <div
                                 className="w-2 h-2 rounded-full flex-shrink-0"
-                                style={{ background: inPantry ? 'var(--primary)' : 'var(--border)' }}
+                                style={{ background: inPantry ? 'var(--primary)' : swapped ? 'var(--accent)' : 'var(--border)' }}
                               />
-                              <span
-                                className="text-sm"
-                                style={{ color: inPantry ? 'var(--foreground)' : 'var(--muted)' }}
-                              >
-                                {ing}
-                              </span>
-                              {inPantry && (
-                                <span className="text-xs ml-auto" style={{ color: 'var(--primary)' }}>in pantry</span>
-                              )}
+                              <div className="flex-1 min-w-0">
+                                {swapped ? (
+                                  <div>
+                                    <span className="text-xs line-through" style={{ color: 'var(--muted)' }}>{ing}</span>
+                                    <span className="text-sm block font-medium" style={{ color: 'var(--accent)' }}>{swapState}</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-sm" style={{ color: inPantry ? 'var(--foreground)' : 'var(--muted)' }}>
+                                    {ing}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {inPantry && !swapped && (
+                                  <span className="text-xs" style={{ color: 'var(--primary)' }}>in pantry</span>
+                                )}
+                                <button
+                                  onClick={() => swapped
+                                    ? setSwappedIngredients(prev => { const n = { ...prev }; delete n[ing]; return n })
+                                    : swapIngredient(ing)
+                                  }
+                                  title={swapped ? 'Undo swap' : 'Swap ingredient'}
+                                  disabled={isSwapping}
+                                  style={{
+                                    color: swapped ? 'var(--accent)' : 'var(--muted)',
+                                    opacity: isSwapping ? 0.4 : 1,
+                                    transition: 'opacity 0.15s',
+                                  }}
+                                >
+                                  <RefreshIcon size={13} />
+                                </button>
+                              </div>
                             </div>
                           )
                         })}

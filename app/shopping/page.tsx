@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Nav from '@/components/nav'
+import { XIcon } from '@/components/icons'
 
 type ShoppingItem = {
   id: string
@@ -76,6 +77,11 @@ export default function ShoppingPage() {
     setItems(prev => prev.map(i => i.id === id ? { ...i, checked: !checked } : i))
   }
 
+  const deleteItem = async (id: string) => {
+    await supabase.from('shopping_items').delete().eq('id', id)
+    setItems(prev => prev.filter(i => i.id !== id))
+  }
+
   const deleteChecked = async () => {
     const checkedIds = items.filter(i => i.checked).map(i => i.id)
     await supabase.from('shopping_items').delete().in('id', checkedIds)
@@ -107,6 +113,42 @@ export default function ShoppingPage() {
       console.error(e)
     }
     setGenerating(false)
+  }
+
+  const ShoppingRow = ({ item, i, onToggle, onDelete }: { item: ShoppingItem; i: number; onToggle: () => void; onDelete: () => void }) => {
+    const [hovered, setHovered] = useState(false)
+    return (
+      <div
+        className="flex items-center gap-3 px-4 py-3"
+        style={{ background: 'var(--card)', borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <button
+          onClick={onToggle}
+          className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+          style={{
+            borderColor: item.checked ? 'var(--secondary)' : 'var(--border)',
+            background: item.checked ? 'var(--secondary)' : 'transparent',
+          }}
+        >
+          {item.checked && <span className="text-white text-xs">✓</span>}
+        </button>
+        <span
+          className="text-sm flex-1"
+          style={{ color: item.checked ? 'var(--muted)' : 'var(--foreground)', textDecoration: item.checked ? 'line-through' : 'none' }}
+        >
+          {item.name}
+        </span>
+        <button
+          onClick={onDelete}
+          title="Remove item"
+          style={{ color: 'var(--muted)', opacity: hovered ? 1 : 0.3, transition: 'opacity 0.15s' }}
+        >
+          <XIcon size={14} />
+        </button>
+      </div>
+    )
   }
 
   const grouped = CATEGORIES.reduce((acc, cat) => {
@@ -208,34 +250,13 @@ export default function ShoppingPage() {
                   style={{ border: '1px solid var(--border)' }}
                 >
                   {catItems.map((item, i) => (
-                    <div
+                    <ShoppingRow
                       key={item.id}
-                      className="flex items-center gap-3 px-4 py-3"
-                      style={{
-                        background: 'var(--card)',
-                        borderTop: i > 0 ? '1px solid var(--border)' : 'none',
-                      }}
-                    >
-                      <button
-                        onClick={() => toggleItem(item.id, item.checked)}
-                        className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-                        style={{
-                          borderColor: item.checked ? 'var(--secondary)' : 'var(--border)',
-                          background: item.checked ? 'var(--secondary)' : 'transparent',
-                        }}
-                      >
-                        {item.checked && <span className="text-white text-xs">✓</span>}
-                      </button>
-                      <span
-                        className="text-sm flex-1"
-                        style={{
-                          color: item.checked ? 'var(--muted)' : 'var(--foreground)',
-                          textDecoration: item.checked ? 'line-through' : 'none',
-                        }}
-                      >
-                        {item.name}
-                      </span>
-                    </div>
+                      item={item}
+                      i={i}
+                      onToggle={() => toggleItem(item.id, item.checked)}
+                      onDelete={() => deleteItem(item.id)}
+                    />
                   ))}
                 </div>
               </div>

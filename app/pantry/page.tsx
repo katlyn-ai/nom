@@ -14,23 +14,21 @@ type PantryItem = {
 
 const CATEGORIES = ['Produce', 'Dairy', 'Meat', 'Pantry', 'Frozen', 'Drinks', 'Other']
 
+const supabase = createClient()
+
 export default function PantryPage() {
   const [items, setItems] = useState<PantryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [newItem, setNewItem] = useState('')
   const [category, setCategory] = useState('Other')
-  const [userId, setUserId] = useState<string | null>(null)
-  // Prompt state: which item was just marked out
   const [outPrompt, setOutPrompt] = useState<{ id: string; name: string } | null>(null)
   const [addingToCart, setAddingToCart] = useState(false)
-
-  const supabase = createClient()
+  const [adding, setAdding] = useState(false)
 
   useEffect(() => {
     const load = async () => {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      setUserId(user.id)
       const { data } = await supabase
         .from('pantry_items')
         .select('*')
@@ -44,9 +42,12 @@ export default function PantryPage() {
   }, [])
 
   const addItem = async () => {
-    if (!newItem.trim() || !userId) return
+    if (!newItem.trim() || adding) return
+    setAdding(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setAdding(false); return }
     const { data } = await supabase.from('pantry_items').insert({
-      user_id: userId,
+      user_id: user.id,
       name: newItem.trim(),
       category,
       in_stock: true,
@@ -55,13 +56,12 @@ export default function PantryPage() {
       setItems(prev => [...prev, data])
       setNewItem('')
     }
+    setAdding(false)
   }
 
   const markOut = async (item: PantryItem) => {
-    // Mark as out of stock in DB
     await supabase.from('pantry_items').update({ in_stock: false }).eq('id', item.id)
     setItems(prev => prev.map(i => i.id === item.id ? { ...i, in_stock: false } : i))
-    // Prompt to add to shopping list
     setOutPrompt({ id: item.id, name: item.name })
   }
 
@@ -77,16 +77,17 @@ export default function PantryPage() {
   }
 
   const addToShoppingList = async () => {
-    if (!outPrompt || !userId) return
+    if (!outPrompt) return
     setAddingToCart(true)
-    // Find the pantry item's category to use on the shopping list
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setAddingToCart(false); return }
     const pantryItem = items.find(i => i.id === outPrompt.id)
     await supabase.from('shopping_items').insert({
-      user_id: userId,
+      user_id: user.id,
       name: outPrompt.name,
       category: pantryItem?.category || 'Other',
       checked: false,
-      added_by: userId,
+      added_by: user.id,
     })
     setAddingToCart(false)
     setOutPrompt(null)
@@ -110,12 +111,58 @@ export default function PantryPage() {
     </div>
   )
 
+  const ItemRow = ({ item, i, showCheckmark }: { item: PantryItem; i: number; showCheckmark: boolean }) => {
+    const [hovered, setHovered] = useState(false)
+    return (
+      <div
+        key={item.id}
+        className="flex items-center gap-3 px-4 py-3"
+        style={{ background: 'var(--card)', borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        {showCheckmark ? (
+          <button
+            onClick={() => markBack(item.id)}
+            title="Back in stock"
+            className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+            style={{ borderColor: 'var(--border)', background: 'var(--border)' }}
+          >
+            <span className="text-xs" style={{ color: 'var(--muted)' }}>✓</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => markOut(item)}
+            title="Mark as run out"
+            className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+            style={{ borderColor: 'var(--primary)' }}
+          />
+        )}
+        <span
+          className="text-sm flex-1"
+          style={{
+            color: showCheckmark ? 'var(--muted)' : 'var(--foreground)',
+            textDecoration: showCheckmark ? 'line-through' : 'none',
+          }}
+        >
+          {item.name}
+        </span>
+        <button
+          onClick={() => deleteItem(item.id)}
+          title="Remove from pantry"
+          style={{ color: 'var(--muted)', opacity: hovered ? 1 : 0.3, transition: 'opacity 0.15s' }}
+        >
+          <XIcon size={14} />
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
       <Nav />
       <main className="md:ml-64 px-6 py-8 pb-24 md:pb-8 max-w-2xl">
 
-        {/* Header */}
         <div className="mb-6">
           <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Pantry</h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
@@ -124,10 +171,7 @@ export default function PantryPage() {
         </div>
 
         {/* Add item */}
-        <div
-          className="rounded-2xl p-4 mb-6"
-          style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-        >
+        <div className="rounded-2xl p-4 mb-6" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
           <div className="flex gap-2 mb-3">
             <input
               type="text"
@@ -140,10 +184,11 @@ export default function PantryPage() {
             />
             <button
               onClick={addItem}
-              className="px-4 py-2.5 rounded-xl text-white text-sm font-medium flex items-center gap-1.5"
+              disabled={adding}
+              className="px-4 py-2.5 rounded-xl text-white text-sm font-medium flex items-center gap-1.5 disabled:opacity-60"
               style={{ background: 'var(--primary)' }}
             >
-              <PlusIcon size={14} /> Add
+              <PlusIcon size={14} /> {adding ? '…' : 'Add'}
             </button>
           </div>
           <div className="flex gap-2 flex-wrap">
@@ -151,7 +196,7 @@ export default function PantryPage() {
               <button
                 key={cat}
                 onClick={() => setCategory(cat)}
-                className="text-xs px-2.5 py-1 rounded-full font-medium transition-colors"
+                className="text-xs px-2.5 py-1 rounded-full font-medium"
                 style={{
                   background: category === cat ? 'var(--primary)' : 'var(--border)',
                   color: category === cat ? 'white' : 'var(--muted)',
@@ -192,103 +237,30 @@ export default function PantryPage() {
           </div>
         )}
 
-        {/* In-stock items, grouped */}
         {Object.keys(groupedInStock).length === 0 && outOfStock.length === 0 ? (
-          <div
-            className="rounded-2xl p-10 text-center"
-            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-          >
+          <div className="rounded-2xl p-10 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
             <div className="flex justify-center mb-3" style={{ color: 'var(--primary)' }}>
               <PackageIcon size={40} />
             </div>
             <p className="font-medium mb-1" style={{ color: 'var(--foreground)' }}>Your pantry is empty</p>
-            <p className="text-sm" style={{ color: 'var(--muted)' }}>
-              Add the items you currently have at home
-            </p>
+            <p className="text-sm" style={{ color: 'var(--muted)' }}>Add the items you currently have at home</p>
           </div>
         ) : (
           <div className="space-y-5">
-            {/* In stock */}
             {Object.entries(groupedInStock).map(([cat, catItems]) => (
               <div key={cat}>
-                <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>
-                  {cat}
-                </p>
+                <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>{cat}</p>
                 <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                  {catItems.map((item, i) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center gap-3 px-4 py-3 group"
-                      style={{
-                        background: 'var(--card)',
-                        borderTop: i > 0 ? '1px solid var(--border)' : 'none',
-                      }}
-                    >
-                      {/* Mark out button */}
-                      <button
-                        onClick={() => markOut(item)}
-                        title="Mark as run out"
-                        className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 hover:border-primary transition-colors"
-                        style={{ borderColor: 'var(--primary)' }}
-                      />
-                      <span className="text-sm flex-1" style={{ color: 'var(--foreground)' }}>
-                        {item.name}
-                      </span>
-                      <button
-                        onClick={() => deleteItem(item.id)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
-                        style={{ color: 'var(--muted)' }}
-                        title="Remove from pantry"
-                      >
-                        <XIcon size={14} />
-                      </button>
-                    </div>
-                  ))}
+                  {catItems.map((item, i) => <ItemRow key={item.id} item={item} i={i} showCheckmark={false} />)}
                 </div>
               </div>
             ))}
 
-            {/* Out of stock section */}
             {outOfStock.length > 0 && (
               <div>
-                <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>
-                  Run out
-                </p>
+                <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>Run out</p>
                 <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                  {outOfStock.map((item, i) => (
-                    <div
-                      key={item.id}
-                      className="flex items-center gap-3 px-4 py-3 group"
-                      style={{
-                        background: 'var(--card)',
-                        borderTop: i > 0 ? '1px solid var(--border)' : 'none',
-                      }}
-                    >
-                      {/* Restore button */}
-                      <button
-                        onClick={() => markBack(item.id)}
-                        title="Back in stock"
-                        className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-                        style={{ borderColor: 'var(--border)', background: 'var(--border)' }}
-                      >
-                        <span className="text-xs" style={{ color: 'var(--muted)' }}>✓</span>
-                      </button>
-                      <span
-                        className="text-sm flex-1"
-                        style={{ color: 'var(--muted)', textDecoration: 'line-through' }}
-                      >
-                        {item.name}
-                      </span>
-                      <button
-                        onClick={() => deleteItem(item.id)}
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
-                        style={{ color: 'var(--muted)' }}
-                        title="Remove from pantry"
-                      >
-                        <XIcon size={14} />
-                      </button>
-                    </div>
-                  ))}
+                  {outOfStock.map((item, i) => <ItemRow key={item.id} item={item} i={i} showCheckmark={true} />)}
                 </div>
               </div>
             )}

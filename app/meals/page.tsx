@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Nav from '@/components/nav'
-import { SparklesIcon, CalendarIcon, SunIcon, CloudSunIcon, MoonIcon, XIcon, ClockIcon, FlameIcon, PackageIcon } from '@/components/icons'
+import { SparklesIcon, CalendarIcon, SunIcon, CloudSunIcon, MoonIcon, XIcon, ClockIcon, FlameIcon, PackageIcon, CookieIcon } from '@/components/icons'
 
 function CheckIcon({ size = 13 }: { size?: number }) {
   return (
@@ -17,6 +17,7 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 const ALL_MEAL_TYPES = [
   { key: 'breakfast', label: 'Breakfast', Icon: SunIcon },
   { key: 'lunch', label: 'Lunch', Icon: CloudSunIcon },
+  { key: 'snack', label: 'Snack', Icon: CookieIcon },
   { key: 'dinner', label: 'Dinner', Icon: MoonIcon },
 ]
 const FALLBACK_MEALS = [
@@ -26,12 +27,12 @@ const FALLBACK_MEALS = [
 
 type Meal = { id?: string; day_index: number; meal_type: string; custom_name: string; cooking_time_minutes?: number; calories_per_serving?: number; ingredients?: string[] }
 type CalendarEvent = { dayIndex: number; summary: string; isNightOff: boolean }
-type PlanSettings = { plan_breakfast: boolean; plan_lunch: boolean; plan_dinner: boolean }
+type PlanSettings = { plan_breakfast: boolean; plan_lunch: boolean; plan_snack: boolean; plan_dinner: boolean }
 type TooltipDetails = { cooking_time_minutes: number; calories_per_serving: number; ingredients: string[]; loading?: boolean }
 
 export default function MealsPage() {
   const [meals, setMeals] = useState<Meal[]>([])
-  const [planSettings, setPlanSettings] = useState<PlanSettings>({ plan_breakfast: true, plan_lunch: true, plan_dinner: true })
+  const [planSettings, setPlanSettings] = useState<PlanSettings>({ plan_breakfast: true, plan_lunch: true, plan_snack: false, plan_dinner: true })
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
   const [calendarConnected, setCalendarConnected] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -66,7 +67,9 @@ export default function MealsPage() {
 
   const activeMealTypes = ALL_MEAL_TYPES.filter(mt =>
     mt.key === 'breakfast' ? planSettings.plan_breakfast :
-    mt.key === 'lunch' ? planSettings.plan_lunch : planSettings.plan_dinner
+    mt.key === 'lunch' ? planSettings.plan_lunch :
+    mt.key === 'snack' ? planSettings.plan_snack :
+    planSettings.plan_dinner
   )
 
   const primaryMealType = activeMealTypes.find(m => m.key === 'dinner')?.key
@@ -80,7 +83,7 @@ export default function MealsPage() {
 
       const [{ data: mealData }, { data: settingsData }, { data: pantryData }] = await Promise.all([
         supabase.from('meal_plans').select('*').eq('user_id', user.id).order('day_index'),
-        supabase.from('settings').select('plan_breakfast, plan_lunch, plan_dinner').eq('user_id', user.id).single(),
+        supabase.from('settings').select('plan_breakfast, plan_lunch, plan_snack, plan_dinner').eq('user_id', user.id).single(),
         supabase.from('pantry_items').select('name').eq('user_id', user.id).eq('in_stock', true),
       ])
 
@@ -90,6 +93,7 @@ export default function MealsPage() {
         setPlanSettings({
           plan_breakfast: settingsData.plan_breakfast ?? true,
           plan_lunch: settingsData.plan_lunch ?? true,
+          plan_snack: settingsData.plan_snack ?? false,
           plan_dinner: settingsData.plan_dinner ?? true,
         })
       }
@@ -150,6 +154,7 @@ export default function MealsPage() {
 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
+    // Use upsert in case settings row doesn't exist
     await supabase.from('settings').update({ [field]: newVal }).eq('user_id', user.id)
   }
 
