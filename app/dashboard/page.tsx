@@ -2,9 +2,14 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Nav from '@/components/nav'
 import Link from 'next/link'
+import { SparklesIcon, ShoppingCartIcon, BookOpenIcon, CreditCardIcon, CalendarDaysIcon, SunIcon, CloudSunIcon, MoonIcon, UtensilsIcon } from '@/components/icons'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-const mealTypeEmoji: Record<string, string> = { breakfast: '🌅', lunch: '☀️', dinner: '🌙' }
+const MealTypeIcon = ({ type }: { type: string }) => {
+  if (type === 'breakfast') return <SunIcon size={12} />
+  if (type === 'lunch') return <CloudSunIcon size={12} />
+  return <MoonIcon size={12} />
+}
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -47,17 +52,17 @@ export default async function DashboardPage() {
           <div className="relative z-10">
             <p className="text-white/70 text-sm font-medium mb-1">Good to see you,</p>
             <h1 className="text-3xl font-bold text-white mb-5" style={{ fontFamily: 'var(--font-display)' }}>
-              {firstName} 👋
+              Hey, {firstName}
             </h1>
             <div className="flex gap-2.5 flex-wrap">
-              <Link href="/meals" className="px-4 py-2 rounded-xl text-sm font-medium text-white" style={{ background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)' }}>
-                ✨ Plan meals
+              <Link href="/meals" className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-white" style={{ background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)' }}>
+                <SparklesIcon size={14} /> Plan meals
               </Link>
-              <Link href="/shopping" className="px-4 py-2 rounded-xl text-sm font-medium text-white" style={{ background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)' }}>
-                🛒 Shopping list
+              <Link href="/shopping" className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-white" style={{ background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)' }}>
+                <ShoppingCartIcon size={14} /> Shopping
               </Link>
-              <Link href="/recipes" className="px-4 py-2 rounded-xl text-sm font-medium text-white" style={{ background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)' }}>
-                📖 Recipes
+              <Link href="/recipes" className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium text-white" style={{ background: 'rgba(255,255,255,0.18)', backdropFilter: 'blur(8px)' }}>
+                <BookOpenIcon size={14} /> Recipes
               </Link>
             </div>
           </div>
@@ -68,15 +73,15 @@ export default async function DashboardPage() {
         {/* Stats */}
         <div className="grid grid-cols-2 gap-4 mb-7">
           {[
-            { emoji: '💳', label: 'Spent this month', value: `€${totalSpent.toFixed(2)}` },
-            { emoji: '📅', label: 'Meals planned', value: `${mealCount}` },
+            { icon: <CreditCardIcon size={18} />, label: 'Spent this month', value: `€${totalSpent.toFixed(2)}` },
+            { icon: <CalendarDaysIcon size={18} />, label: 'Meals planned', value: `${mealCount}` },
           ].map(stat => (
             <div
               key={stat.label}
               className="rounded-2xl p-5"
               style={{ background: 'var(--card)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border)' }}
             >
-              <div className="text-xl mb-2">{stat.emoji}</div>
+              <div className="mb-2" style={{ color: 'var(--primary)' }}>{stat.icon}</div>
               <p className="text-xs font-medium uppercase tracking-wide mb-1" style={{ color: 'var(--muted)' }}>
                 {stat.label}
               </p>
@@ -116,10 +121,11 @@ export default async function DashboardPage() {
                       {dayMeals.map(meal => (
                         <span
                           key={meal.id}
-                          className="text-xs px-2.5 py-1 rounded-full font-medium"
+                          className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium"
                           style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
                         >
-                          {mealTypeEmoji[meal.meal_type] || '🍴'} {meal.recipes?.name || meal.custom_name || 'Meal'}
+                          <MealTypeIcon type={meal.meal_type} />
+                          {meal.recipes?.name || meal.custom_name || 'Meal'}
                         </span>
                       ))}
                     </div>
@@ -133,7 +139,7 @@ export default async function DashboardPage() {
             className="rounded-3xl p-10 text-center"
             style={{ background: 'var(--card)', boxShadow: 'var(--shadow-sm)', border: '1px solid var(--border)' }}
           >
-            <div className="text-5xl mb-4">🍽️</div>
+            <div className="mb-4" style={{ color: 'var(--primary)', display: 'flex', justifyContent: 'center' }}><UtensilsIcon size={48} /></div>
             <p className="font-semibold text-lg mb-2" style={{ color: 'var(--foreground)', fontFamily: 'var(--font-display)' }}>
               No meals planned yet
             </p>

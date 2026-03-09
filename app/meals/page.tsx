@@ -3,12 +3,13 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Nav from '@/components/nav'
+import { SparklesIcon, CalendarIcon, SunIcon, CloudSunIcon, MoonIcon, XIcon, TrashIcon } from '@/components/icons'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 const ALL_MEAL_TYPES = [
-  { key: 'breakfast', label: 'Breakfast', emoji: '🌅' },
-  { key: 'lunch', label: 'Lunch', emoji: '☀️' },
-  { key: 'dinner', label: 'Dinner', emoji: '🌙' },
+  { key: 'breakfast', label: 'Breakfast', Icon: SunIcon },
+  { key: 'lunch', label: 'Lunch', Icon: CloudSunIcon },
+  { key: 'dinner', label: 'Dinner', Icon: MoonIcon },
 ]
 const FALLBACK_MEALS = [
   'Pasta Carbonara', 'Chicken Stir Fry', 'Vegetable Curry',
@@ -17,10 +18,11 @@ const FALLBACK_MEALS = [
 
 type Meal = { id?: string; day_index: number; meal_type: string; custom_name: string }
 type CalendarEvent = { dayIndex: number; summary: string; isNightOff: boolean }
+type PlanSettings = { plan_breakfast: boolean; plan_lunch: boolean; plan_dinner: boolean }
 
 export default function MealsPage() {
   const [meals, setMeals] = useState<Meal[]>([])
-  const [planSettings, setPlanSettings] = useState({ plan_breakfast: true, plan_lunch: true, plan_dinner: true })
+  const [planSettings, setPlanSettings] = useState<PlanSettings>({ plan_breakfast: true, plan_lunch: true, plan_dinner: true })
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
   const [calendarConnected, setCalendarConnected] = useState(false)
   const [syncing, setSyncing] = useState(false)
@@ -81,6 +83,24 @@ export default function MealsPage() {
     }
   }
 
+  const deleteMeal = async (dayIndex: number, mealType: string) => {
+    const existing = meals.find(m => m.day_index === dayIndex && m.meal_type === mealType)
+    if (!existing?.id) return
+    await supabase.from('meal_plans').delete().eq('id', existing.id)
+    setMeals(prev => prev.filter(m => m.id !== existing.id))
+  }
+
+  const toggleMealType = async (key: string) => {
+    const field = `plan_${key}` as keyof PlanSettings
+    const newVal = !planSettings[field]
+    const newSettings = { ...planSettings, [field]: newVal }
+    setPlanSettings(newSettings)
+
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    await supabase.from('settings').update({ [field]: newVal }).eq('user_id', user.id)
+  }
+
   const handleGenerate = async () => {
     setGenerating(true)
     setSuggestions([])
@@ -108,11 +128,11 @@ export default function MealsPage() {
       }
 
       const data = await res.json()
-      const meals = Array.isArray(data.meals) && data.meals.length > 0
+      const suggested = Array.isArray(data.meals) && data.meals.length > 0
         ? data.meals
         : FALLBACK_MEALS
 
-      setSuggestions(meals)
+      setSuggestions(suggested)
     } catch (err) {
       console.error('Generate error:', err)
       setSuggestions(FALLBACK_MEALS)
@@ -176,7 +196,7 @@ export default function MealsPage() {
       <div className="min-h-screen" style={{ background: 'var(--background)' }}>
         <Nav />
         <div className="md:ml-64 flex items-center justify-center h-64">
-          <div className="text-2xl animate-pulse">🍽️</div>
+          <div className="animate-pulse" style={{ color: 'var(--primary)' }}><UtensilsIcon size={32} /></div>
         </div>
       </div>
     )
@@ -188,16 +208,16 @@ export default function MealsPage() {
       <main className="md:ml-64 px-6 py-8 pb-24 md:pb-8 max-w-4xl">
 
         {/* Header */}
-        <div className="mb-7 flex items-start justify-between gap-3 flex-wrap">
+        <div className="mb-6 flex items-start justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Meal Plan</h1>
-            <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Plan your week, click a slot to edit</p>
+            <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Click a slot to edit · generate with AI</p>
           </div>
           <div className="flex gap-2">
             <button
               onClick={syncCalendar}
               disabled={syncing}
-              className="px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all"
               style={{
                 background: calendarConnected ? 'var(--secondary-light)' : 'var(--card)',
                 color: calendarConnected ? 'var(--secondary)' : 'var(--muted)',
@@ -205,17 +225,42 @@ export default function MealsPage() {
                 boxShadow: 'var(--shadow-sm)',
               }}
             >
-              {syncing ? '⏳' : '🗓'} {calendarConnected ? 'Calendar synced' : 'Sync calendar'}
+              <CalendarIcon size={15} />
+              {syncing ? 'Syncing…' : calendarConnected ? 'Synced' : 'Sync calendar'}
             </button>
             <button
               onClick={handleGenerate}
               disabled={generating}
-              className="px-4 py-2.5 rounded-xl text-white text-sm font-medium transition-all disabled:opacity-70"
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-medium transition-all disabled:opacity-70"
               style={{ background: 'var(--gradient-primary)', boxShadow: 'var(--shadow-md)' }}
             >
-              {generating ? '⏳ Generating…' : '✨ Generate meals'}
+              <SparklesIcon size={15} />
+              {generating ? 'Generating…' : 'Generate meals'}
             </button>
           </div>
+        </div>
+
+        {/* Meal type toggles */}
+        <div className="flex gap-2 mb-5 flex-wrap">
+          <span className="text-xs font-medium self-center mr-1" style={{ color: 'var(--muted)' }}>Planning:</span>
+          {ALL_MEAL_TYPES.map(({ key, label, Icon }) => {
+            const field = `plan_${key}` as keyof PlanSettings
+            const active = planSettings[field]
+            return (
+              <button
+                key={key}
+                onClick={() => toggleMealType(key)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all"
+                style={{
+                  background: active ? 'var(--primary)' : 'var(--border)',
+                  color: active ? 'white' : 'var(--muted)',
+                }}
+              >
+                <Icon size={12} />
+                {label}
+              </button>
+            )
+          })}
         </div>
 
         {/* AI suggestions panel */}
@@ -225,8 +270,12 @@ export default function MealsPage() {
             style={{ background: 'var(--card)', boxShadow: 'var(--shadow-md)', border: '1px solid var(--border)' }}
           >
             <div className="flex items-center justify-between mb-3">
-              <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>✨ AI Meal Suggestions</p>
-              <button onClick={() => setShowPanel(false)} style={{ color: 'var(--muted)', fontSize: 18 }}>✕</button>
+              <p className="text-sm font-semibold flex items-center gap-1.5" style={{ color: 'var(--foreground)' }}>
+                <SparklesIcon size={14} /> AI Meal Suggestions
+              </p>
+              <button onClick={() => setShowPanel(false)} style={{ color: 'var(--muted)' }}>
+                <XIcon size={16} />
+              </button>
             </div>
 
             <div className="flex gap-2 mb-4">
@@ -242,16 +291,18 @@ export default function MealsPage() {
               <button
                 onClick={handleGenerate}
                 disabled={generating}
-                className="px-4 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-60"
+                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-60"
                 style={{ background: 'var(--gradient-primary)' }}
               >
+                <SparklesIcon size={13} />
                 {generating ? '…' : 'Regenerate'}
               </button>
             </div>
 
             {generating && (
               <div className="flex items-center gap-2 text-sm py-2" style={{ color: 'var(--muted)' }}>
-                <span className="animate-spin inline-block">⏳</span> Asking NOM AI for ideas…
+                <span className="animate-spin inline-block"><SparklesIcon size={14} /></span>
+                Asking NOM AI for ideas…
               </div>
             )}
 
@@ -265,11 +316,11 @@ export default function MealsPage() {
               <>
                 <div className="flex items-center justify-between mb-2.5">
                   <p className="text-sm" style={{ color: 'var(--muted)' }}>
-                    Click a meal to add it to the next free slot:
+                    Click to add to next free slot:
                   </p>
                   <button
                     onClick={handleFillWeek}
-                    className="text-xs px-3 py-1.5 rounded-full font-medium text-white"
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-medium text-white"
                     style={{ background: 'var(--gradient-primary)' }}
                   >
                     Fill whole week
@@ -314,10 +365,10 @@ export default function MealsPage() {
                       {dayEvents.map((evt, ei) => (
                         <span
                           key={ei}
-                          className="text-xs px-2 py-0.5 rounded-full font-medium"
+                          className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium"
                           style={{ background: 'var(--secondary-light)', color: 'var(--secondary)' }}
                         >
-                          🗓 {evt.summary}
+                          <CalendarIcon size={10} /> {evt.summary}
                         </span>
                       ))}
                     </div>
@@ -325,25 +376,45 @@ export default function MealsPage() {
                 </div>
 
                 {hasNightOff ? (
-                  <p className="text-sm" style={{ color: 'var(--secondary)' }}>🎉 Night off — no cooking needed</p>
+                  <p className="text-sm" style={{ color: 'var(--secondary)' }}>Night off — no cooking needed</p>
+                ) : activeMealTypes.length === 0 ? (
+                  <p className="text-sm" style={{ color: 'var(--muted)' }}>No meal types selected — enable one above</p>
                 ) : (
                   <div className={`grid ${gridCols} gap-3`}>
-                    {activeMealTypes.map(({ key, label, emoji }) => {
+                    {activeMealTypes.map(({ key, label, Icon }) => {
                       const existing = getMeal(dayIndex, key)
+                      const hasMeal = !!existing?.custom_name
                       return (
                         <div key={key}>
-                          <p className="text-xs mb-1.5 font-medium" style={{ color: 'var(--muted)' }}>
-                            {emoji} {label}
+                          <p className="flex items-center gap-1 text-xs mb-1.5 font-medium" style={{ color: 'var(--muted)' }}>
+                            <Icon size={11} /> {label}
                           </p>
-                          <input
-                            key={existing?.id || `${dayIndex}-${key}-empty`}
-                            type="text"
-                            defaultValue={existing?.custom_name || ''}
-                            placeholder="Add meal…"
-                            onBlur={e => { if (e.target.value.trim()) saveMeal(dayIndex, key, e.target.value.trim()) }}
-                            className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none"
-                            style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
-                          />
+                          <div className="relative flex items-center">
+                            <input
+                              key={existing?.id || `${dayIndex}-${key}-empty`}
+                              type="text"
+                              defaultValue={existing?.custom_name || ''}
+                              placeholder="Add meal…"
+                              onBlur={e => { if (e.target.value.trim()) saveMeal(dayIndex, key, e.target.value.trim()) }}
+                              className="w-full px-3 py-2.5 rounded-xl border text-sm outline-none"
+                              style={{
+                                borderColor: 'var(--border)',
+                                background: 'var(--background)',
+                                color: 'var(--foreground)',
+                                paddingRight: hasMeal ? '2rem' : undefined,
+                              }}
+                            />
+                            {hasMeal && (
+                              <button
+                                onClick={() => deleteMeal(dayIndex, key)}
+                                className="absolute right-2.5 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
+                                style={{ color: 'var(--muted)' }}
+                                title="Remove meal"
+                              >
+                                <XIcon size={13} />
+                              </button>
+                            )}
+                          </div>
                         </div>
                       )
                     })}
@@ -355,5 +426,16 @@ export default function MealsPage() {
         </div>
       </main>
     </div>
+  )
+}
+
+// needed for loading state icon
+function UtensilsIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
+      <path d="M7 2v20" />
+      <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7" />
+    </svg>
   )
 }
