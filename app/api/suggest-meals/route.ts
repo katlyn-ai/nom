@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: Request) {
-  const { prompt, userId } = await request.json()
+  const { prompt, userId, filters } = await request.json()
+  const activeFilters: { cuisines?: string[]; proteins?: string[]; maxTime?: number | null; usePantry?: boolean } = filters || {}
 
   const supabase = await createClient()
 
@@ -52,6 +53,22 @@ export async function POST(request: Request) {
     : activeMealTypes.includes('lunch') ? 'lunch'
     : activeMealTypes[0] || 'dinner'
 
+  // Build filter constraints
+  const filterLines: string[] = []
+  if (activeFilters.cuisines?.length) {
+    filterLines.push(`CUISINE CONSTRAINT: Only suggest meals from these cuisines: ${activeFilters.cuisines.join(', ')}. Do not include meals from any other cuisine.`)
+  }
+  if (activeFilters.proteins?.length) {
+    filterLines.push(`PROTEIN CONSTRAINT: Only use these proteins across the week's meals: ${activeFilters.proteins.join(', ')}. Do not include meals that use other protein types.`)
+  }
+  if (activeFilters.maxTime) {
+    filterLines.push(`COOKING TIME CONSTRAINT: Every meal MUST be achievable in under ${activeFilters.maxTime} minutes. Do not suggest any meal that takes longer.`)
+  }
+  if (activeFilters.usePantry && pantryNames.length) {
+    filterLines.push(`PANTRY PRIORITY: The user wants to use up their pantry items as much as possible this week. Try to incorporate pantry items into as many meals as you can: ${pantryNames.join(', ')}.`)
+  }
+  const filterConstraints = filterLines.length ? `\nUSER CONSTRAINTS — these are HARD REQUIREMENTS, override all other rules:\n${filterLines.join('\n')}` : ''
+
   const systemPrompt = `You are a creative meal planning assistant for NOM. Your job is to suggest exciting, diverse, and delicious ${primaryMealType} meals for the week.
 
 DIVERSITY RULES — you MUST follow all of these:
@@ -61,6 +78,7 @@ DIVERSITY RULES — you MUST follow all of these:
 4. Vary the carb: mix rice, pasta, potatoes, bread, grains, and no-carb options
 5. Include at least one lesser-known or adventurous dish that the household is unlikely to have made recently
 6. Do NOT suggest generic meal names — be specific and appealing (e.g. "Lemon Herb Roasted Chicken" not "Chicken", "Spiced Lamb Flatbreads with Yoghurt" not "Lamb dish")
+${filterConstraints}
 
 Household context:
 ${context}

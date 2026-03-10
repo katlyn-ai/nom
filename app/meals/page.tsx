@@ -25,6 +25,23 @@ const FALLBACK_MEALS = [
   'Salmon with Rice', 'Tomato Soup', 'Greek Salad', 'Beef Tacos',
 ]
 
+const CUISINE_OPTIONS = ['Italian', 'Asian', 'Mexican', 'Mediterranean', 'Middle Eastern', 'Indian', 'American', 'French', 'Japanese']
+const PROTEIN_OPTIONS = ['Chicken', 'Beef', 'Pork', 'Fish', 'Seafood', 'Plant-based', 'Eggs', 'Lamb']
+const TIME_OPTIONS = [
+  { label: '< 20 min', value: 20 },
+  { label: '< 30 min', value: 30 },
+  { label: '< 45 min', value: 45 },
+  { label: '< 60 min', value: 60 },
+]
+
+type Filters = {
+  cuisines: string[]
+  proteins: string[]
+  maxTime: number | null
+  usePantry: boolean
+  showFilters: boolean
+}
+
 type Meal = { id?: string; day_index: number; meal_type: string; custom_name: string; cooking_time_minutes?: number; calories_per_serving?: number; ingredients?: string[] }
 type CalendarEvent = { dayIndex: number; summary: string; isNightOff: boolean }
 type PlanSettings = { plan_breakfast: boolean; plan_lunch: boolean; plan_snack: boolean; plan_dinner: boolean }
@@ -42,6 +59,7 @@ export default function MealsPage() {
   const [prompt, setPrompt] = useState('')
   const [suggestions, setSuggestions] = useState<string[]>([])
   const [generateError, setGenerateError] = useState('')
+  const [filters, setFilters] = useState<Filters>({ cuisines: [], proteins: [], maxTime: null, usePantry: false, showFilters: false })
   // localEdits tracks unsaved typing: key = `${dayIndex}-${mealType}`
   const [localEdits, setLocalEdits] = useState<Record<string, string>>({})
   // Pantry + hover tooltip
@@ -175,7 +193,16 @@ export default function MealsPage() {
       const res = await fetch('/api/suggest-meals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, userId: user.id }),
+        body: JSON.stringify({
+          prompt,
+          userId: user.id,
+          filters: {
+            cuisines: filters.cuisines,
+            proteins: filters.proteins,
+            maxTime: filters.maxTime,
+            usePantry: filters.usePantry,
+          },
+        }),
       })
 
       if (!res.ok) {
@@ -352,7 +379,7 @@ export default function MealsPage() {
             className="rounded-2xl p-5 mb-6"
             style={{ background: 'var(--card)', boxShadow: 'var(--shadow-md)', border: '1px solid var(--border)' }}
           >
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-4">
               <p className="text-sm font-semibold flex items-center gap-1.5" style={{ color: 'var(--foreground)' }}>
                 <SparklesIcon size={14} /> AI Meal Suggestions
               </p>
@@ -361,6 +388,146 @@ export default function MealsPage() {
               </button>
             </div>
 
+            {/* Filter section */}
+            <div className="mb-4">
+              <button
+                onClick={() => setFilters(f => ({ ...f, showFilters: !f.showFilters }))}
+                className="flex items-center gap-1.5 text-xs font-medium mb-3 transition-opacity hover:opacity-70"
+                style={{ color: (filters.cuisines.length || filters.proteins.length || filters.maxTime || filters.usePantry) ? 'var(--primary)' : 'var(--muted)' }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/>
+                </svg>
+                Filters
+                {(filters.cuisines.length + filters.proteins.length + (filters.maxTime ? 1 : 0) + (filters.usePantry ? 1 : 0)) > 0 && (
+                  <span
+                    className="flex items-center justify-center w-4 h-4 rounded-full text-white"
+                    style={{ background: 'var(--primary)', fontSize: '9px', fontWeight: 700 }}
+                  >
+                    {filters.cuisines.length + filters.proteins.length + (filters.maxTime ? 1 : 0) + (filters.usePantry ? 1 : 0)}
+                  </span>
+                )}
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ transform: filters.showFilters ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+
+              {filters.showFilters && (
+                <div
+                  className="rounded-xl p-4 space-y-3"
+                  style={{ background: 'var(--background)', border: '1px solid var(--border)' }}
+                >
+                  {/* Cuisine filter */}
+                  <div>
+                    <p className="text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>Cuisine</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {CUISINE_OPTIONS.map(c => {
+                        const active = filters.cuisines.includes(c)
+                        return (
+                          <button
+                            key={c}
+                            onClick={() => setFilters(f => ({
+                              ...f,
+                              cuisines: active ? f.cuisines.filter(x => x !== c) : [...f.cuisines, c]
+                            }))}
+                            className="px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+                            style={{
+                              background: active ? 'var(--primary)' : 'var(--card)',
+                              color: active ? 'white' : 'var(--muted)',
+                              border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                            }}
+                          >
+                            {c}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Protein filter */}
+                  <div>
+                    <p className="text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>Protein</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {PROTEIN_OPTIONS.map(p => {
+                        const active = filters.proteins.includes(p)
+                        return (
+                          <button
+                            key={p}
+                            onClick={() => setFilters(f => ({
+                              ...f,
+                              proteins: active ? f.proteins.filter(x => x !== p) : [...f.proteins, p]
+                            }))}
+                            className="px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+                            style={{
+                              background: active ? 'var(--primary)' : 'var(--card)',
+                              color: active ? 'white' : 'var(--muted)',
+                              border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                            }}
+                          >
+                            {p}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Cooking time filter */}
+                  <div>
+                    <p className="text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>Max cooking time</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {TIME_OPTIONS.map(t => {
+                        const active = filters.maxTime === t.value
+                        return (
+                          <button
+                            key={t.value}
+                            onClick={() => setFilters(f => ({ ...f, maxTime: active ? null : t.value }))}
+                            className="px-2.5 py-1 rounded-full text-xs font-medium transition-all"
+                            style={{
+                              background: active ? 'var(--primary)' : 'var(--card)',
+                              color: active ? 'white' : 'var(--muted)',
+                              border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                            }}
+                          >
+                            {t.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Pantry toggle */}
+                  <div>
+                    <p className="text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>Pantry</p>
+                    <button
+                      onClick={() => setFilters(f => ({ ...f, usePantry: !f.usePantry }))}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all"
+                      style={{
+                        background: filters.usePantry ? 'var(--primary)' : 'var(--card)',
+                        color: filters.usePantry ? 'white' : 'var(--muted)',
+                        border: `1px solid ${filters.usePantry ? 'var(--primary)' : 'var(--border)'}`,
+                      }}
+                    >
+                      <PackageIcon size={11} />
+                      Use up my pantry as much as possible
+                    </button>
+                  </div>
+
+                  {/* Clear filters */}
+                  {(filters.cuisines.length > 0 || filters.proteins.length > 0 || filters.maxTime || filters.usePantry) && (
+                    <button
+                      onClick={() => setFilters(f => ({ ...f, cuisines: [], proteins: [], maxTime: null, usePantry: false }))}
+                      className="text-xs font-medium transition-opacity hover:opacity-70"
+                      style={{ color: 'var(--muted)' }}
+                    >
+                      Clear all filters
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Prompt + regenerate */}
             <div className="flex gap-2 mb-4">
               <input
                 type="text"
