@@ -147,17 +147,43 @@ export default function ShoppingPage() {
   const generateFromMeals = async () => {
     setGenerating(true)
     try {
-      // Always get user fresh — userId state can be null if auth resolved late
+      // Get user fresh
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setGenerating(false); return }
 
-      // Get access token to pass explicitly — avoids RLS issues with cookie auth
-      const { data: { session } } = await supabase.auth.getSession()
+      // Query meal_plans directly from the client — no RLS issues this way
+      const { data: meals, error: mealsError } = await supabase
+        .from('meal_plans')
+        .select('custom_name')
+        .eq('user_id', user.id)
 
+      if (mealsError) {
+        console.error('meal_plans error:', mealsError)
+        alert('Something went wrong loading your meal plan. Please try again.')
+        setGenerating(false)
+        return
+      }
+
+      const mealNames = meals?.map(m => m.custom_name).filter(Boolean) || []
+
+      if (mealNames.length === 0) {
+        alert('No meals are planned this week. Go to the Meals page first and generate a meal plan.')
+        setGenerating(false)
+        return
+      }
+
+      // Fetch user settings for personalisation
+      const { data: settings } = await supabase
+        .from('settings')
+        .select('preferred_brands, store_sort_preference, preferred_store')
+        .eq('user_id', user.id)
+        .single()
+
+      // Send meal names + settings to API — Claude generates the shopping list
       const res = await fetch('/api/generate-shopping-list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id, accessToken: session?.access_token }),
+        body: JSON.stringify({ mealNames, settings }),
       })
       const data = await res.json()
 
@@ -172,8 +198,8 @@ export default function ShoppingPage() {
           }).select().single()
           if (inserted) setItems(prev => [...prev, inserted])
         }
-      } else if (data.items?.length === 0) {
-        alert('No meals are planned this week. Go to the Meals page first and generate a meal plan.')
+      } else {
+        alert('Couldn\'t generate a list from your meals. Please try again.')
       }
     } catch (e) {
       console.error('generateFromMeals error:', e)

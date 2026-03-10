@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server'
-import { createServerClient } from '@supabase/ssr'
 
 const SORT_LABELS: Record<string, string> = {
   popular: 'most popular / best-selling products',
@@ -8,48 +7,22 @@ const SORT_LABELS: Record<string, string> = {
   my_brands: "the user's preferred brands listed above",
 }
 
+type Settings = {
+  preferred_brands?: string[] | null
+  store_sort_preference?: string | null
+  preferred_store?: string | null
+} | null
+
 export async function POST(request: Request) {
-  const { userId, accessToken } = await request.json()
+  const { mealNames, settings }: { mealNames: string[]; settings: Settings } = await request.json()
 
-  // Create a Supabase client that uses the access token directly
-  // This bypasses cookie-based auth and works reliably in Route Handlers
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      global: accessToken
-        ? { headers: { Authorization: `Bearer ${accessToken}` } }
-        : {},
-      cookies: { getAll: () => [], setAll: () => {} },
-    }
-  )
-
-  // Fetch meal plan and settings in parallel
-  const [{ data: meals, error: mealsError }, { data: settings }] = await Promise.all([
-    supabase
-      .from('meal_plans')
-      .select('custom_name')
-      .eq('user_id', userId),
-    supabase
-      .from('settings')
-      .select('preferred_brands, store_sort_preference, preferred_store')
-      .eq('user_id', userId)
-      .single(),
-  ])
-
-  if (mealsError) {
-    console.error('meal_plans query error:', mealsError)
-  }
-
-  const mealNames = meals?.map(m => m.custom_name).filter(Boolean) || []
-
-  if (mealNames.length === 0) {
+  if (!mealNames || mealNames.length === 0) {
     return NextResponse.json({ items: [] })
   }
 
   const sortPref = settings?.store_sort_preference || 'popular'
   const sortInstruction = SORT_LABELS[sortPref] || SORT_LABELS.popular
-  const preferredBrands = settings?.preferred_brands as string[] | null
+  const preferredBrands = settings?.preferred_brands
   const brandsContext = preferredBrands?.length
     ? `\nPreferred brands/products: ${preferredBrands.join(', ')}. Where possible, suggest these specific brands.`
     : ''
