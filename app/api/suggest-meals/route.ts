@@ -6,11 +6,12 @@ export async function POST(request: Request) {
 
   const supabase = await createClient()
 
-  // Fetch user settings, people profiles, and top-rated recipes in parallel
-  const [{ data: settings }, { data: people }, { data: recipes }] = await Promise.all([
+  // Fetch user settings, people profiles, top-rated recipes, and pantry in parallel
+  const [{ data: settings }, { data: people }, { data: recipes }, { data: pantry }] = await Promise.all([
     supabase.from('settings').select('*').eq('user_id', userId).single(),
     supabase.from('people_profiles').select('name, age_group, dislikes, allergies, dietary_preferences').eq('user_id', userId),
     supabase.from('recipes').select('name, rating, tags').eq('user_id', userId).order('rating', { ascending: false }).limit(20),
+    supabase.from('pantry_items').select('name').eq('user_id', userId).eq('in_stock', true),
   ])
 
   // Work out which meal types are active
@@ -31,6 +32,9 @@ export async function POST(request: Request) {
     return parts.join(' — ')
   }).join('\n') || ''
 
+  // Pantry items — users may write in any language (Estonian, Russian, English, etc.)
+  const pantryNames = (pantry || []).map(p => p.name).filter(Boolean)
+
   const context = [
     settings ? `Household: ${settings.household_size} people` : '',
     settings?.dietary_preferences?.length ? `Household dietary preferences: ${settings.dietary_preferences.join(', ')}` : '',
@@ -39,6 +43,9 @@ export async function POST(request: Request) {
     settings?.snacks ? `Typical snacks: ${settings.snacks}` : '',
     peopleContext ? `Household members:\n${peopleContext}` : '',
     recipes?.length ? `Favourite recipes: ${recipes.filter(r => r.rating >= 4).map(r => r.name).join(', ')}` : '',
+    pantryNames.length
+      ? `Items currently in the pantry (prioritise meals that USE these up — items may be written in any language such as Estonian, Russian, Finnish or English): ${pantryNames.join(', ')}`
+      : '',
   ].filter(Boolean).join('\n')
 
   const primaryMealType = activeMealTypes.includes('dinner') ? 'dinner'

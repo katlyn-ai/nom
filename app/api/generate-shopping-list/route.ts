@@ -14,7 +14,11 @@ type Settings = {
 } | null
 
 export async function POST(request: Request) {
-  const { mealNames, settings }: { mealNames: string[]; settings: Settings } = await request.json()
+  const { mealNames, settings, pantryItems }: {
+    mealNames: string[]
+    settings: Settings
+    pantryItems?: string[]
+  } = await request.json()
 
   if (!mealNames || mealNames.length === 0) {
     return NextResponse.json({ items: [] })
@@ -30,11 +34,17 @@ export async function POST(request: Request) {
     ? `\nShopping at: ${settings.preferred_store}.`
     : ''
 
+  // Pantry exclusion — users may write items in any language
+  const pantryContext = pantryItems?.length
+    ? `\n\nThe user already has these items at home — do NOT add them to the shopping list: ${pantryItems.join(', ')}.
+IMPORTANT: Match items semantically across languages. Users may write pantry items in Estonian, Russian, Finnish, English, or any other language. For example, if the pantry contains "Munad" (Estonian for eggs), do not add "Eggs" or "Eier" or "Яйца" to the list. If the pantry contains "Piim" (milk), do not add "Milk" or "Milch". Use your knowledge of food vocabulary across languages to identify duplicates.`
+    : ''
+
   const systemPrompt = `You are a helpful assistant for NOM, a meal planning app.
-Given a list of meals for the week, generate a practical shopping list.
+Given a list of meals for the week, generate a practical shopping list of items the user still needs to buy.
 You MUST respond with ONLY a raw JSON array — no markdown, no code fences, no backticks, no explanation. Just the JSON array itself.
 Each item must have "name" (string) and "category" (one of: Produce, Dairy, Meat, Pantry, Frozen, Drinks, Other).
-When choosing specific products or brands, prefer ${sortInstruction}.${brandsContext}${storeContext}
+When choosing specific products or brands, prefer ${sortInstruction}.${brandsContext}${storeContext}${pantryContext}
 Be practical — combine similar items and use realistic quantities.
 Example of the EXACT format required: [{"name":"Eggs","category":"Dairy"},{"name":"Broccoli","category":"Produce"}]`
 

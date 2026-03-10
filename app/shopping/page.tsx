@@ -172,18 +172,29 @@ export default function ShoppingPage() {
         return
       }
 
-      // Fetch user settings for personalisation
-      const { data: settings } = await supabase
-        .from('settings')
-        .select('preferred_brands, store_sort_preference, preferred_store')
-        .eq('user_id', user.id)
-        .single()
+      // Fetch user settings and pantry in parallel
+      const [{ data: settings }, { data: pantryData }] = await Promise.all([
+        supabase
+          .from('settings')
+          .select('preferred_brands, store_sort_preference, preferred_store')
+          .eq('user_id', user.id)
+          .single(),
+        supabase
+          .from('pantry_items')
+          .select('name')
+          .eq('user_id', user.id)
+          .eq('in_stock', true),
+      ])
 
-      // Send meal names + settings to API — Claude generates the shopping list
+      // Pass pantry item names so the AI skips anything already at home
+      // Items may be in any language — the AI handles cross-language matching
+      const pantryItems = pantryData?.map(p => p.name).filter(Boolean) || []
+
+      // Send meal names + settings + pantry to API — Claude generates the shopping list
       const res = await fetch('/api/generate-shopping-list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mealNames, settings }),
+        body: JSON.stringify({ mealNames, settings, pantryItems }),
       })
       const data = await res.json()
 
