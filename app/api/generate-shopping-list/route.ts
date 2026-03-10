@@ -32,9 +32,11 @@ export async function POST(request: Request) {
 
   const systemPrompt = `You are a helpful assistant for NOM, a meal planning app.
 Given a list of meals for the week, generate a practical shopping list.
-Return ONLY a JSON array of objects with "name" (string) and "category" (one of: Produce, Dairy, Meat, Pantry, Frozen, Drinks, Other).
+You MUST respond with ONLY a raw JSON array — no markdown, no code fences, no backticks, no explanation. Just the JSON array itself.
+Each item must have "name" (string) and "category" (one of: Produce, Dairy, Meat, Pantry, Frozen, Drinks, Other).
 When choosing specific products or brands, prefer ${sortInstruction}.${brandsContext}${storeContext}
-Be practical — combine similar items and use realistic quantities.`
+Be practical — combine similar items and use realistic quantities.
+Example of the EXACT format required: [{"name":"Eggs","category":"Dairy"},{"name":"Broccoli","category":"Produce"}]`
 
   const userMessage = `Generate a shopping list for these meals this week: ${mealNames.join(', ')}`
 
