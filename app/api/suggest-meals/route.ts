@@ -52,15 +52,24 @@ export async function POST(request: Request) {
     : activeMealTypes.includes('lunch') ? 'lunch'
     : activeMealTypes[0] || 'dinner'
 
-  const systemPrompt = `You are a helpful meal planning assistant for NOM.
-Suggest exactly ${suggestionCount} ${primaryMealType} meal ideas for this week based on the household's preferences.
-Return ONLY a JSON array of ${suggestionCount} meal name strings. No explanation. No extra text.
+  const systemPrompt = `You are a creative meal planning assistant for NOM. Your job is to suggest exciting, diverse, and delicious ${primaryMealType} meals for the week.
+
+DIVERSITY RULES — you MUST follow all of these:
+1. No two meals from the same cuisine (e.g. only one Italian, one Asian, one Mexican, etc.)
+2. Vary the protein: include fish/seafood, poultry, red meat, and at least one plant-based option across the week
+3. Vary the cooking style: include at least one soup/stew, one salad or light dish, one baked or roasted dish, and one quick stir-fry or skillet meal
+4. Vary the carb: mix rice, pasta, potatoes, bread, grains, and no-carb options
+5. Include at least one lesser-known or adventurous dish that the household is unlikely to have made recently
+6. Do NOT suggest generic meal names — be specific and appealing (e.g. "Lemon Herb Roasted Chicken" not "Chicken", "Spiced Lamb Flatbreads with Yoghurt" not "Lamb dish")
+
 Household context:
-${context}`
+${context}
+
+Return ONLY a JSON array of exactly ${suggestionCount} meal name strings. No explanation. No extra text. No markdown.`
 
   const userMessage = prompt
-    ? `Suggest meals for this week. Extra notes: ${prompt}`
-    : `Suggest ${suggestionCount} great ${primaryMealType} meals for this week.`
+    ? `Suggest ${suggestionCount} diverse and interesting ${primaryMealType} meals for this week. Extra notes from the user: ${prompt}`
+    : `Suggest ${suggestionCount} diverse, interesting, and delicious ${primaryMealType} meals for this week. Make them varied and exciting — different cuisines, proteins, and cooking styles.`
 
   const FALLBACK = ['Pasta Carbonara', 'Chicken Stir Fry', 'Vegetable Curry', 'Salmon with Rice', 'Tomato Soup', 'Greek Salad', 'Beef Tacos']
 
@@ -74,7 +83,7 @@ ${context}`
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 500,
+        max_tokens: 800,
         messages: [{ role: 'user', content: userMessage }],
         system: systemPrompt,
       }),
