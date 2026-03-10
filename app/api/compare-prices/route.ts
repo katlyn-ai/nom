@@ -26,45 +26,21 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
+        max_tokens: 8192,
+        system: 'You are a grocery price assistant for Estonia. You MUST respond with ONLY a raw JSON object — no markdown, no code fences, no backticks, no explanation. Just the JSON.',
         messages: [{
           role: 'user',
-          content: `You are a grocery price assistant for Estonia. Estimate realistic prices in euros for this shopping list across 4 Estonian online grocery stores.
+          content: `Estimate realistic 2024-2025 prices in euros for this shopping list across 4 Estonian online grocery stores: Barbora, Selver, Prisma, Rimi.
 
-Shopping list:
+Shopping list (${itemNames.length} items):
 ${itemNames.map((n, i) => `${i + 1}. ${n}`).join('\n')}
 
-Stores to compare: Barbora, Selver, Prisma, Rimi
+Price guidelines: Barbora and Rimi are slightly cheaper on essentials. Prisma slightly pricier. Selver mid-range. Vary prices 5-15% between stores naturally.
 
-Use realistic 2024-2025 Estonian supermarket prices. Make prices vary naturally between stores (typically 5-15% difference). Barbora and Rimi tend to be slightly cheaper on essentials. Prisma tends to be slightly pricier. Selver is mid-range.
+Return ONLY this JSON structure (no markdown, no code fences):
+{"stores":[{"name":"Barbora","items":[{"name":"item","price":1.89}],"subtotal":1.89},{"name":"Selver","items":[{"name":"item","price":1.99}],"subtotal":1.99},{"name":"Prisma","items":[{"name":"item","price":2.09}],"subtotal":2.09},{"name":"Rimi","items":[{"name":"item","price":1.85}],"subtotal":1.85}]}
 
-Return ONLY valid JSON, no other text:
-{
-  "stores": [
-    {
-      "name": "Barbora",
-      "items": [{"name": "eggs 12pk", "price": 1.89}],
-      "subtotal": 1.89
-    },
-    {
-      "name": "Selver",
-      "items": [{"name": "eggs 12pk", "price": 1.99}],
-      "subtotal": 1.99
-    },
-    {
-      "name": "Prisma",
-      "items": [{"name": "eggs 12pk", "price": 2.09}],
-      "subtotal": 2.09
-    },
-    {
-      "name": "Rimi",
-      "items": [{"name": "eggs 12pk", "price": 1.85}],
-      "subtotal": 1.85
-    }
-  ]
-}
-
-The subtotal must equal the sum of all item prices for that store.`,
+Include ALL ${itemNames.length} items for each store. Subtotal must equal sum of item prices.`,
         }],
       }),
     })
@@ -75,10 +51,18 @@ The subtotal must equal the sum of all item prices for that store.`,
     }
 
     const aiData = await response.json()
-    const text: string = aiData.content?.[0]?.text || ''
+    const raw: string = aiData.content?.[0]?.text || ''
+    // Strip any markdown code fences Claude might add despite instructions
+    const text = raw
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```\s*$/i, '')
+      .trim()
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('No JSON in response')
+    if (!jsonMatch) {
+      console.error('No JSON found in response. Raw text:', text.slice(0, 500))
+      throw new Error('No JSON in response')
+    }
 
     const parsed = JSON.parse(jsonMatch[0])
 
