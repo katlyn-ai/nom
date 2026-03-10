@@ -22,7 +22,7 @@ export default function RecipesPage() {
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [showImport, setShowImport] = useState(false)
-  const [importUrl, setImportUrl] = useState('')
+  const [importText, setImportText] = useState('')
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
   const [selected, setSelected] = useState<Recipe | null>(null)
@@ -74,15 +74,15 @@ export default function RecipesPage() {
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, rating } : null)
   }
 
-  const handleImportFromUrl = async () => {
-    if (!importUrl.trim() || !userId) return
+  const handleImportFromText = async () => {
+    if (!importText.trim() || !userId) return
     setImporting(true)
     setImportError('')
     try {
       const res = await fetch('/api/import-recipe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: importUrl.trim() }),
+        body: JSON.stringify({ text: importText.trim() }),
       })
       const data = await res.json()
       if (data.error) {
@@ -104,7 +104,7 @@ export default function RecipesPage() {
       if (saved) {
         setRecipes(prev => [...prev, saved])
         setShowImport(false)
-        setImportUrl('')
+        setImportText('')
       }
     } catch {
       setImportError('Something went wrong. Please try again.')
@@ -275,24 +275,26 @@ export default function RecipesPage() {
           <div
             className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
             style={{ background: 'rgba(0,0,0,0.4)' }}
-            onClick={() => { setShowImport(false); setImportError(''); setImportUrl('') }}
+            onClick={() => { setShowImport(false); setImportError(''); setImportText('') }}
           >
             <div
               className="w-full max-w-lg rounded-2xl p-6"
               style={{ background: 'var(--card)' }}
               onClick={e => e.stopPropagation()}
             >
-              <h2 className="text-xl font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Import from URL</h2>
-              <p className="text-sm mb-5" style={{ color: 'var(--muted)' }}>
-                Paste a link to any recipe page — NOM AI will extract and save it automatically.
+              <h2 className="text-xl font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Import recipe</h2>
+              <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>
+                Open the recipe page, select all the text (Cmd+A), copy it, then paste it below.
               </p>
-              <input
-                type="url"
-                value={importUrl}
-                onChange={e => { setImportUrl(e.target.value); setImportError('') }}
-                onKeyDown={e => e.key === 'Enter' && handleImportFromUrl()}
-                placeholder="https://www.example.com/recipe/pasta-carbonara"
-                className="w-full px-4 py-3 rounded-xl border text-sm outline-none mb-3"
+              <p className="text-xs mb-4 px-3 py-2 rounded-xl" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
+                Works with any recipe site — BBC Good Food, AllRecipes, NYT Cooking, and more.
+              </p>
+              <textarea
+                value={importText}
+                onChange={e => { setImportText(e.target.value); setImportError('') }}
+                placeholder="Paste the recipe text here…"
+                rows={6}
+                className="w-full px-4 py-3 rounded-xl border text-sm outline-none resize-none mb-3"
                 style={{ borderColor: importError ? 'red' : 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
                 autoFocus
               />
@@ -302,20 +304,20 @@ export default function RecipesPage() {
               {importing && (
                 <div className="flex items-center gap-2 text-sm mb-3" style={{ color: 'var(--muted)' }}>
                   <span className="animate-spin inline-block">✨</span>
-                  Reading recipe…
+                  Extracting recipe…
                 </div>
               )}
               <div className="flex gap-3">
                 <button
-                  onClick={handleImportFromUrl}
-                  disabled={importing || !importUrl.trim()}
+                  onClick={handleImportFromText}
+                  disabled={importing || !importText.trim()}
                   className="flex-1 py-3 rounded-xl text-white text-sm font-medium disabled:opacity-50"
                   style={{ background: 'var(--primary)' }}
                 >
                   {importing ? 'Importing…' : 'Import recipe'}
                 </button>
                 <button
-                  onClick={() => { setShowImport(false); setImportError(''); setImportUrl('') }}
+                  onClick={() => { setShowImport(false); setImportError(''); setImportText('') }}
                   className="px-5 py-3 rounded-xl text-sm font-medium"
                   style={{ background: 'var(--border)', color: 'var(--muted)' }}
                 >
