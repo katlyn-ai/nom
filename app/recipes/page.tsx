@@ -38,6 +38,10 @@ function bgGradient(name: string) {
   return BG_GRADIENTS[Math.abs(hash) % BG_GRADIENTS.length]
 }
 
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+
+type MealPlanEntry = { id: string; day_index: number; meal_type: string; custom_name: string }
+
 export default function RecipesPage() {
   const [recipes, setRecipes] = useState<Recipe[]>([])
   const [loading, setLoading] = useState(true)
@@ -47,7 +51,6 @@ export default function RecipesPage() {
   const [importText, setImportText] = useState('')
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
-  // After AI parses the recipe, we show a preview before saving
   const [importPreview, setImportPreview] = useState<Omit<Recipe, 'id' | 'rating'> | null>(null)
   const [importImageUrl, setImportImageUrl] = useState('')
   const [importSaving, setImportSaving] = useState(false)
@@ -57,6 +60,14 @@ export default function RecipesPage() {
     name: '', description: '', ingredients: '', instructions: '',
     servings: 4, prep_time: 30, tags: '', image_url: '',
   })
+
+  // Add to meal plan
+  const [mealPlanEntries, setMealPlanEntries] = useState<MealPlanEntry[]>([])
+  const [primaryMealType, setPrimaryMealType] = useState('dinner')
+  const [addingRecipe, setAddingRecipe] = useState<Recipe | null>(null)
+  const [addingDay, setAddingDay] = useState<number | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+
   const supabase = createClient()
 
   useEffect(() => {
@@ -64,12 +75,24 @@ export default function RecipesPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
       setUserId(user.id)
-      const { data } = await supabase
-        .from('recipes')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('name')
-      setRecipes(data || [])
+
+      const [{ data: recipesData }, { data: mealData }, { data: settingsData }] = await Promise.all([
+        supabase.from('recipes').select('*').eq('user_id', user.id).order('name'),
+        supabase.from('meal_plans').select('id, day_index, meal_type, custom_name').eq('user_id', user.id),
+        supabase.from('settings').select('plan_breakfast, plan_lunch, plan_dinner').eq('user_id', user.id).single(),
+      ])
+
+      setRecipes(recipesData || [])
+      setMealPlanEntries(mealData || [])
+
+      // Determine primary meal type from settings
+      if (settingsData) {
+        const primary = settingsData.plan_dinner !== false ? 'dinner'
+          : settingsData.plan_lunch !== false ? 'lunch'
+          : 'breakfast'
+        setPrimaryMealType(primary)
+      }
+
       setLoading(false)
     }
     load()
@@ -99,6 +122,38 @@ export default function RecipesPage() {
     await supabase.from('recipes').update({ rating }).eq('id', id)
     setRecipes(prev => prev.map(r => r.id === id ? { ...r, rating } : r))
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, rating } : null)
+  }
+
+  const handleAddToMealPlan = async (recipe: Recipe, dayIndex: number) => {
+    if (!userId) return
+    setAddingDay(dayIndex)
+
+    const existing = mealPlanEntries.find(
+      m => m.day_index === dayIndex && m.meal_type === primaryMealType
+    )
+
+    if (existing?.id) {
+      await supabase.from('meal_plans')
+        .update({ custom_name: recipe.name })
+        .eq('id', existing.id)
+      setMealPlanEntries(prev =>
+        prev.map(m => m.id === existing.id ? { ...m, custom_name: recipe.name } : m)
+      )
+    } else {
+      const { data } = await supabase.from('meal_plans').insert({
+        user_id: userId,
+        day_index: dayIndex,
+        meal_type: primaryMealType,
+        custom_name: recipe.name,
+      }).select().single()
+      if (data) setMealPlanEntries(prev => [...prev, data])
+    }
+
+    setAddingDay(null)
+    setAddingRecipe(null)
+    const day = DAYS[dayIndex]
+    setToast(`Added to ${day}!`)
+    setTimeout(() => setToast(null), 2500)
   }
 
   // Step 1: Parse recipe text with AI
@@ -278,6 +333,16 @@ export default function RecipesPage() {
                       <span className="text-4xl">{foodEmoji(recipe.name)}</span>
                     </div>
                   )}
+
+                  {/* Add to meal plan button */}
+                  <button
+                    onClick={e => { e.stopPropagation(); setAddingRecipe(recipe) }}
+                    title="Add to meal plan"
+                    className="absolute top-2.5 right-2.5 w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-lg shadow-md hover:scale-110 transition-transform"
+                    style={{ background: 'var(--primary)', fontSize: '1.1rem', lineHeight: 1 }}
+                  >
+                    +
+                  </button>
                 </div>
 
                 {/* Card content */}
@@ -556,6 +621,65 @@ export default function RecipesPage() {
           </div>
         )}
 
+        {/* Add to meal plan — day picker modal */}
+        {addingRecipe && (
+          <div
+            className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.4)' }}
+            onClick={() => setAddingRecipe(null)}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl p-6"
+              style={{ background: 'var(--card)' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <h2 className="text-base font-semibold mb-1" style={{ color: 'var(--foreground)' }}>
+                Add to meal plan
+              </h2>
+              <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
+                Which day should <span style={{ color: 'var(--foreground)', fontWeight: 500 }}>"{addingRecipe.name}"</span> go on?
+              </p>
+              <div className="grid grid-cols-7 gap-1.5 mb-4">
+                {DAYS.map((day, i) => {
+                  const existing = mealPlanEntries.find(
+                    m => m.day_index === i && m.meal_type === primaryMealType
+                  )
+                  const isBusy = !!existing?.custom_name
+                  const isLoading = addingDay === i
+                  return (
+                    <button
+                      key={day}
+                      onClick={() => handleAddToMealPlan(addingRecipe, i)}
+                      disabled={isLoading}
+                      title={isBusy ? `${day}: ${existing.custom_name}` : day}
+                      className="flex flex-col items-center gap-1 py-2 rounded-xl text-xs font-medium transition-all hover:scale-105 active:scale-95 disabled:opacity-60"
+                      style={{
+                        background: isBusy ? 'var(--primary-light)' : 'var(--background)',
+                        color: isBusy ? 'var(--primary)' : 'var(--foreground)',
+                        border: `1.5px solid ${isBusy ? 'var(--primary)' : 'var(--border)'}`,
+                      }}
+                    >
+                      <span>{day.slice(0, 3)}</span>
+                      {isLoading ? (
+                        <span style={{ fontSize: '0.6rem' }}>…</span>
+                      ) : isBusy ? (
+                        <span style={{ fontSize: '0.55rem', opacity: 0.7, maxWidth: '2.5rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {existing.custom_name.split(' ')[0]}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.7rem', opacity: 0.4 }}>free</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-center" style={{ color: 'var(--muted)' }}>
+                Highlighted days already have a {primaryMealType} — clicking replaces it.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Add recipe modal */}
         {showAdd && (
           <div
@@ -694,6 +818,16 @@ export default function RecipesPage() {
           </div>
         )}
       </main>
+
+      {/* Toast notification */}
+      {toast && (
+        <div
+          className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl text-white text-sm font-medium shadow-lg pointer-events-none"
+          style={{ background: 'var(--primary)', transition: 'opacity 0.3s' }}
+        >
+          ✓ {toast}
+        </div>
+      )}
     </div>
   )
 }
