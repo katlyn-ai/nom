@@ -389,6 +389,7 @@ export default function MealsPage() {
             <button
               onClick={handleGenerate}
               disabled={generating}
+              data-tour="generate-meals-btn"
               className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-medium transition-all disabled:opacity-70"
               style={{ background: 'var(--gradient-primary)', boxShadow: 'var(--shadow-md)' }}
             >
@@ -658,7 +659,7 @@ export default function MealsPage() {
         )}
 
         {/* Week grid */}
-        <div className="space-y-3">
+        <div data-tour="week-grid" className="space-y-3">
           {DAYS.map((day, dayIndex) => {
             const dayEvents = calendarEvents.filter(e => e.dayIndex === dayIndex)
             const hasNightOff = dayEvents.some(e => e.isNightOff)

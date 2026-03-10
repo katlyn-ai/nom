@@ -5,14 +5,15 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useEffect, useState } from 'react'
 import { HomeIcon, UtensilsIcon, BookOpenIcon, ShoppingCartIcon, SettingsIcon, LogOutIcon, PackageIcon } from './icons'
+import OnboardingTour from './onboarding-tour'
 
 const navItems = [
   { href: '/dashboard', label: 'Home', Icon: HomeIcon },
   { href: '/meals', label: 'Meals', Icon: UtensilsIcon },
   { href: '/recipes', label: 'Recipes', Icon: BookOpenIcon },
-  { href: '/pantry', label: 'Pantry', Icon: PackageIcon },
-  { href: '/shopping', label: 'Shopping', Icon: ShoppingCartIcon },
-  { href: '/settings', label: 'Settings', Icon: SettingsIcon },
+  { href: '/pantry', label: 'Pantry', Icon: PackageIcon, dataTour: 'nav-pantry' },
+  { href: '/shopping', label: 'Shopping', Icon: ShoppingCartIcon, dataTour: 'nav-shopping' },
+  { href: '/settings', label: 'Settings', Icon: SettingsIcon, dataTour: 'nav-settings' },
 ]
 
 export default function Nav() {
@@ -75,12 +76,13 @@ export default function Nav() {
 
         {/* Nav items */}
         <nav className="flex-1 px-3 py-3 space-y-0.5">
-          {navItems.map(({ href, label, Icon }) => {
+          {navItems.map(({ href, label, Icon, dataTour }) => {
             const active = pathname === href
             return (
               <Link
                 key={href}
                 href={href}
+                {...(dataTour ? { 'data-tour': dataTour } : {})}
                 className="flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-medium transition-all"
                 style={{
                   background: active ? 'var(--gradient-primary)' : 'transparent',
@@ -121,12 +123,13 @@ export default function Nav() {
         className="md:hidden fixed bottom-0 left-0 right-0 flex items-center justify-around py-2 px-1 z-50"
         style={{ background: 'var(--card)', boxShadow: '0 -4px 20px rgba(61,107,71,0.08)', borderTop: '1px solid var(--border)' }}
       >
-        {navItems.map(({ href, label, Icon }) => {
+        {navItems.map(({ href, label, Icon, dataTour }) => {
           const active = pathname === href
           return (
             <Link
               key={href}
               href={href}
+              {...(dataTour ? { 'data-tour': dataTour } : {})}
               className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-xl"
               style={{ color: active ? 'var(--primary)' : 'var(--muted)' }}
             >
@@ -136,6 +139,9 @@ export default function Nav() {
           )
         })}
       </nav>
+
+      {/* Onboarding tour — rendered here so it's available on every page */}
+      <OnboardingTour />
     </>
   )
 }
