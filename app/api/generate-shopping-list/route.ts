@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   const [{ data: meals, error: mealsError }, { data: settings }] = await Promise.all([
     supabase
       .from('meal_plans')
-      .select('custom_name, recipes(name, ingredients)')
+      .select('custom_name')
       .eq('user_id', userId),
     supabase
       .from('settings')
@@ -41,12 +41,7 @@ export async function POST(request: Request) {
     console.error('meal_plans query error:', mealsError)
   }
 
-  const mealNames = meals?.map(m => {
-    if (m.custom_name) return m.custom_name
-    const recipe = m.recipes as unknown as { name: string } | { name: string }[] | null
-    if (Array.isArray(recipe)) return recipe[0]?.name
-    return recipe?.name
-  }).filter(Boolean) || []
+  const mealNames = meals?.map(m => m.custom_name).filter(Boolean) || []
 
   if (mealNames.length === 0) {
     return NextResponse.json({ items: [] })
