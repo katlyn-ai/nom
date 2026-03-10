@@ -147,26 +147,34 @@ export default function ShoppingPage() {
   const generateFromMeals = async () => {
     setGenerating(true)
     try {
+      // Always get user fresh — userId state can be null if auth resolved late
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setGenerating(false); return }
+
       const res = await fetch('/api/generate-shopping-list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ userId: user.id }),
       })
       const data = await res.json()
-      if (data.items) {
+
+      if (data.items && data.items.length > 0) {
         for (const item of data.items) {
           const { data: inserted } = await supabase.from('shopping_items').insert({
-            user_id: userId,
+            user_id: user.id,
             name: item.name,
             category: item.category || 'Other',
             checked: false,
-            added_by: userId,
+            added_by: user.id,
           }).select().single()
           if (inserted) setItems(prev => [...prev, inserted])
         }
+      } else if (data.items?.length === 0) {
+        alert('No meals are planned this week. Go to the Meals page first and generate a meal plan.')
       }
     } catch (e) {
-      console.error(e)
+      console.error('generateFromMeals error:', e)
+      alert('Something went wrong generating your list. Please try again.')
     }
     setGenerating(false)
   }
