@@ -68,6 +68,9 @@ export default function MealsPage() {
   const [pantryItems, setPantryItems] = useState<string[]>([])
   const [hoverKey, setHoverKey] = useState<string | null>(null)
   const [tooltipDetails, setTooltipDetails] = useState<Record<string, TooltipDetails>>({})
+  // Copy-to-slots
+  const [copyModal, setCopyModal] = useState<{ dayIndex: number; mealType: string; name: string } | null>(null)
+  const [copyTargets, setCopyTargets] = useState<string[]>([])
   const supabase = createClient()
 
   const slotKey = (dayIndex: number, mealType: string) => `${dayIndex}-${mealType}`
@@ -260,6 +263,18 @@ export default function MealsPage() {
     }
     setSuggestions({})
     setShowPanel(false)
+  }
+
+  const handleCopyMeal = async () => {
+    if (!copyModal || copyTargets.length === 0) return
+    for (const k of copyTargets) {
+      const idx = k.indexOf('-')
+      const di = parseInt(k.slice(0, idx))
+      const mt = k.slice(idx + 1)
+      await saveMeal(di, mt, copyModal.name)
+    }
+    setCopyModal(null)
+    setCopyTargets([])
   }
 
   const handleHover = async (dayIndex: number, mealType: string) => {
@@ -686,7 +701,7 @@ export default function MealsPage() {
                                 borderColor: dirty ? 'var(--primary)' : 'var(--border)',
                                 background: 'var(--background)',
                                 color: 'var(--foreground)',
-                                paddingRight: (dirty || hasMeal) ? '2rem' : undefined,
+                                paddingRight: (!dirty && hasMeal) ? '3.5rem' : (dirty || hasMeal) ? '2rem' : undefined,
                                 transition: 'border-color 0.15s',
                               }}
                             />
@@ -701,14 +716,24 @@ export default function MealsPage() {
                               </button>
                             )}
                             {!dirty && hasMeal && (
-                              <button
-                                onClick={() => deleteMeal(dayIndex, key)}
-                                className="absolute right-2.5 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
-                                style={{ color: 'var(--muted)' }}
-                                title="Remove meal"
-                              >
-                                <XIcon size={13} />
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => { setCopyModal({ dayIndex, mealType: key, name: getMealValue(dayIndex, key) }); setCopyTargets([]) }}
+                                  className="absolute right-8 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
+                                  style={{ color: 'var(--muted)' }}
+                                  title="Copy to other slots"
+                                >
+                                  <CopyIcon size={13} />
+                                </button>
+                                <button
+                                  onClick={() => deleteMeal(dayIndex, key)}
+                                  className="absolute right-2.5 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
+                                  style={{ color: 'var(--muted)' }}
+                                  title="Remove meal"
+                                >
+                                  <XIcon size={13} />
+                                </button>
+                              </>
                             )}
 
                             {/* Hover tooltip */}
@@ -768,7 +793,112 @@ export default function MealsPage() {
           })}
         </div>
       </main>
+
+      {/* Copy to slots modal */}
+      {copyModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.45)' }}
+          onClick={() => setCopyModal(null)}
+        >
+          <div
+            className="rounded-2xl p-6 w-full max-w-sm"
+            style={{ background: 'var(--card)', boxShadow: 'var(--shadow-lg)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="font-semibold text-base mb-1" style={{ color: 'var(--foreground)' }}>
+              Also add to…
+            </h3>
+            <p className="text-sm mb-4 truncate" style={{ color: 'var(--muted)' }}>
+              "{copyModal.name}"
+            </p>
+
+            <div className="overflow-x-auto -mx-1">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr>
+                    <td className="pb-2 pl-1 pr-3" />
+                    {activeMealTypes.map(mt => (
+                      <th
+                        key={mt.key}
+                        className="pb-2 px-2 font-medium text-center"
+                        style={{ color: 'var(--muted)' }}
+                      >
+                        <span className="flex flex-col items-center gap-0.5">
+                          <mt.Icon size={11} />
+                          {mt.label.slice(0, 3)}
+                        </span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {DAYS.map((day, di) => (
+                    <tr key={di} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                      <td
+                        className="py-2 pl-1 pr-3 font-medium whitespace-nowrap"
+                        style={{ color: 'var(--foreground)' }}
+                      >
+                        {day.slice(0, 3)}
+                      </td>
+                      {activeMealTypes.map(mt => {
+                        const k = slotKey(di, mt.key)
+                        const isSource = di === copyModal.dayIndex && mt.key === copyModal.mealType
+                        const isChecked = copyTargets.includes(k)
+                        return (
+                          <td key={mt.key} className="py-2 px-2 text-center">
+                            {isSource ? (
+                              <span className="text-xs" style={{ color: 'var(--border)' }}>—</span>
+                            ) : (
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => setCopyTargets(prev =>
+                                  isChecked ? prev.filter(x => x !== k) : [...prev, k]
+                                )}
+                                className="w-4 h-4 rounded cursor-pointer"
+                                style={{ accentColor: 'var(--primary)' }}
+                              />
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <button
+                onClick={() => setCopyModal(null)}
+                className="px-4 py-2 rounded-xl text-sm font-medium"
+                style={{ background: 'var(--border)', color: 'var(--muted)' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCopyMeal}
+                disabled={copyTargets.length === 0}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 transition-opacity"
+                style={{ background: 'var(--gradient-primary)' }}
+              >
+                {copyTargets.length > 0 ? `Copy to ${copyTargets.length} slot${copyTargets.length > 1 ? 's' : ''}` : 'Select slots'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  )
+}
+
+function CopyIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
   )
 }
 
