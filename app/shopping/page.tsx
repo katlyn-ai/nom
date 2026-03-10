@@ -151,10 +151,13 @@ export default function ShoppingPage() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setGenerating(false); return }
 
+      // Get access token to pass explicitly — avoids RLS issues with cookie auth
+      const { data: { session } } = await supabase.auth.getSession()
+
       const res = await fetch('/api/generate-shopping-list', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id }),
+        body: JSON.stringify({ userId: user.id, accessToken: session?.access_token }),
       })
       const data = await res.json()
 

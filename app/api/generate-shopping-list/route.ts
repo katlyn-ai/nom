@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createServerClient } from '@supabase/ssr'
 
 const SORT_LABELS: Record<string, string> = {
   popular: 'most popular / best-selling products',
@@ -9,12 +9,23 @@ const SORT_LABELS: Record<string, string> = {
 }
 
 export async function POST(request: Request) {
-  const { userId } = await request.json()
+  const { userId, accessToken } = await request.json()
 
-  const supabase = await createClient()
+  // Create a Supabase client that uses the access token directly
+  // This bypasses cookie-based auth and works reliably in Route Handlers
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      global: accessToken
+        ? { headers: { Authorization: `Bearer ${accessToken}` } }
+        : {},
+      cookies: { getAll: () => [], setAll: () => {} },
+    }
+  )
 
   // Fetch meal plan and settings in parallel
-  const [{ data: meals }, { data: settings }] = await Promise.all([
+  const [{ data: meals, error: mealsError }, { data: settings }] = await Promise.all([
     supabase
       .from('meal_plans')
       .select('custom_name, recipes(name, ingredients)')
@@ -26,7 +37,16 @@ export async function POST(request: Request) {
       .single(),
   ])
 
-  const mealNames = meals?.map(m => m.custom_name || (m.recipes as unknown as { name: string } | null)?.name).filter(Boolean) || []
+  if (mealsError) {
+    console.error('meal_plans query error:', mealsError)
+  }
+
+  const mealNames = meals?.map(m => {
+    if (m.custom_name) return m.custom_name
+    const recipe = m.recipes as unknown as { name: string } | { name: string }[] | null
+    if (Array.isArray(recipe)) return recipe[0]?.name
+    return recipe?.name
+  }).filter(Boolean) || []
 
   if (mealNames.length === 0) {
     return NextResponse.json({ items: [] })
