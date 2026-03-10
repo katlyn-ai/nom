@@ -265,6 +265,16 @@ export default function MealsPage() {
     setShowPanel(false)
   }
 
+  const handleClearAll = async () => {
+    if (!confirm('Remove all meals from the week? This cannot be undone.')) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    await supabase.from('meal_plans').delete().eq('user_id', user.id)
+    setMeals([])
+    setLocalEdits({})
+    setTooltipDetails({})
+  }
+
   const handleCopyMeal = async () => {
     if (!copyModal || copyTargets.length === 0) return
     for (const k of copyTargets) {
@@ -346,7 +356,22 @@ export default function MealsPage() {
             <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Meal Plan</h1>
             <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>Click a slot to edit · generate with AI</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            {meals.some(m => m.custom_name) && (
+              <button
+                onClick={handleClearAll}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all"
+                style={{
+                  background: 'var(--card)',
+                  color: 'var(--muted)',
+                  border: '1px solid var(--border)',
+                  boxShadow: 'var(--shadow-sm)',
+                }}
+              >
+                <XIcon size={14} />
+                Clear week
+              </button>
+            )}
             <button
               onClick={syncCalendar}
               disabled={syncing}
