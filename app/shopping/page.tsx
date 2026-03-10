@@ -166,6 +166,9 @@ export default function ShoppingPage() {
 
       const mealNames = meals?.map(m => m.custom_name).filter(Boolean) || []
 
+      // DEBUG — remove after confirming
+      alert(`DEBUG: Found ${meals?.length ?? 0} rows. Names: "${meals?.map(m => m.custom_name).join(', ')}" | Error: ${mealsError ? JSON.stringify(mealsError) : 'none'}`)
+
       if (mealNames.length === 0) {
         alert('No meals are planned this week. Go to the Meals page first and generate a meal plan.')
         setGenerating(false)
