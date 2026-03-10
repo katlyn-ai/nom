@@ -38,11 +38,16 @@ Be practical — combine similar items and use realistic quantities.`
 
   const userMessage = `Generate a shopping list for these meals this week: ${mealNames.join(', ')}`
 
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.error('ANTHROPIC_API_KEY is not set')
+    return NextResponse.json({ items: [], error: 'ANTHROPIC_API_KEY not configured' })
+  }
+
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'x-api-key': process.env.ANTHROPIC_API_KEY!,
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
         'content-type': 'application/json',
       },
@@ -54,6 +59,12 @@ Be practical — combine similar items and use realistic quantities.`
       }),
     })
 
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}))
+      console.error('Claude API error:', response.status, errBody)
+      return NextResponse.json({ items: [], error: `Claude API ${response.status}: ${JSON.stringify(errBody)}` })
+    }
+
     const data = await response.json()
     const text = data.content?.[0]?.text || '[]'
     const match = text.match(/\[[\s\S]*\]/)
@@ -62,6 +73,6 @@ Be practical — combine similar items and use realistic quantities.`
     return NextResponse.json({ items })
   } catch (error) {
     console.error('AI error:', error)
-    return NextResponse.json({ items: [] })
+    return NextResponse.json({ items: [], error: String(error) })
   }
 }

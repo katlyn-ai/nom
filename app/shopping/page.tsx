@@ -202,7 +202,7 @@ export default function ShoppingPage() {
           if (inserted) setItems(prev => [...prev, inserted])
         }
       } else {
-        alert('Couldn\'t generate a list from your meals. Please try again.')
+        alert(`Couldn't generate a list from your meals. Error: ${data.error || 'unknown — check Vercel logs'}`)
       }
     } catch (e) {
       console.error('generateFromMeals error:', e)
