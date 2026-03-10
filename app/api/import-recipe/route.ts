@@ -12,12 +12,24 @@ export async function POST(request: Request) {
   try {
     const res = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; NOM recipe importer)',
-        'Accept': 'text/html',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Upgrade-Insecure-Requests': '1',
       },
     })
     if (!res.ok) {
-      return NextResponse.json({ error: `Could not fetch that URL (${res.status})` }, { status: 400 })
+      // Some sites (AllRecipes, NYT, etc.) block automated fetches entirely.
+      // Give a helpful message with alternatives.
+      return NextResponse.json({
+        error: `That site blocked the import (${res.status}). Try a recipe from BBC Good Food, Serious Eats, or Food Network — or add it manually.`
+      }, { status: 400 })
     }
     html = await res.text()
   } catch {
