@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Nav from '@/components/nav'
-import { PackageIcon, PlusIcon, XIcon } from '@/components/icons'
+import { PackageIcon, PlusIcon, XIcon, SparklesIcon } from '@/components/icons'
 
 type PantryItem = {
   id: string
@@ -25,6 +25,8 @@ export default function PantryPage() {
   const [addingToCart, setAddingToCart] = useState(false)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+  const [categorising, setCategorising] = useState(false)
+  const [categoriseToast, setCategoriseToast] = useState<string | null>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -101,6 +103,37 @@ export default function PantryPage() {
     setOutPrompt(null)
   }
 
+  const handleAutoCategorise = async () => {
+    setCategorising(true)
+    setCategoriseToast(null)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setCategorising(false); return }
+
+    try {
+      const res = await fetch('/api/categorise-pantry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id }),
+      })
+      const data = await res.json()
+      if (data.categorised?.length) {
+        // Apply new categories to local state
+        setItems(prev => prev.map(item => {
+          const match = data.categorised.find((c: { id: string; category: string }) => c.id === item.id)
+          return match ? { ...item, category: match.category } : item
+        }))
+        setCategoriseToast(`✓ Organised ${data.updated} item${data.updated !== 1 ? 's' : ''} into categories`)
+      } else {
+        setCategoriseToast('Nothing to organise')
+      }
+    } catch {
+      setCategoriseToast('Could not organise — try again')
+    }
+
+    setCategorising(false)
+    setTimeout(() => setCategoriseToast(null), 3000)
+  }
+
   const inStock = items.filter(i => i.in_stock)
   const outOfStock = items.filter(i => !i.in_stock)
 
@@ -171,12 +204,40 @@ export default function PantryPage() {
       <Nav />
       <main className="md:ml-64 px-6 py-8 pb-24 md:pb-8 max-w-2xl">
 
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Pantry</h1>
-          <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-            {inStock.length} items in stock · {outOfStock.length} run out
-          </p>
+        <div className="mb-6 flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Pantry</h1>
+            <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
+              {inStock.length} items in stock · {outOfStock.length} run out
+            </p>
+          </div>
+          {items.length > 0 && (
+            <button
+              onClick={handleAutoCategorise}
+              disabled={categorising}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-60 flex-shrink-0"
+              style={{
+                background: 'var(--card)',
+                color: 'var(--muted)',
+                border: '1px solid var(--border)',
+                boxShadow: 'var(--shadow-sm)',
+              }}
+            >
+              <SparklesIcon size={14} />
+              {categorising ? 'Organising…' : 'Auto-organise'}
+            </button>
+          )}
         </div>
+
+        {/* Categorise toast */}
+        {categoriseToast && (
+          <div
+            className="rounded-xl px-4 py-3 mb-4 text-sm font-medium"
+            style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+          >
+            {categoriseToast}
+          </div>
+        )}
 
         {/* Add item */}
         <div className="rounded-2xl p-4 mb-6" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
