@@ -67,8 +67,26 @@ Be practical — combine similar items and use realistic quantities.`
 
     const data = await response.json()
     const text = data.content?.[0]?.text || '[]'
-    const match = text.match(/\[[\s\S]*\]/)
-    const items = match ? JSON.parse(match[0]) : []
+    console.log('Claude raw response:', text)
+
+    // Try multiple parsing strategies
+    let items = []
+    try {
+      // Strategy 1: direct parse if Claude returned pure JSON
+      items = JSON.parse(text)
+    } catch {
+      // Strategy 2: extract JSON array from anywhere in the text
+      const match = text.match(/\[[\s\S]*?\](?=\s*$|\s*\n|$)/m) || text.match(/\[[\s\S]*\]/)
+      if (match) {
+        try {
+          items = JSON.parse(match[0])
+        } catch (e) {
+          console.error('JSON parse failed:', e, 'text was:', text)
+        }
+      } else {
+        console.error('No JSON array found in Claude response:', text)
+      }
+    }
 
     return NextResponse.json({ items })
   } catch (error) {
