@@ -14,6 +14,28 @@ type Recipe = {
   servings: number
   prep_time: number
   tags: string[]
+  image_url?: string | null
+}
+
+const FOOD_EMOJIS = ['🍝', '🥗', '🍜', '🍛', '🥘', '🍲', '🥙', '🌮', '🍱', '🥩', '🍣', '🥞', '🍕', '🫕']
+function foodEmoji(name: string) {
+  let hash = 0
+  for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff
+  return FOOD_EMOJIS[Math.abs(hash) % FOOD_EMOJIS.length]
+}
+
+const BG_GRADIENTS = [
+  'linear-gradient(135deg, #f9a8d4, #fbcfe8)',
+  'linear-gradient(135deg, #86efac, #bbf7d0)',
+  'linear-gradient(135deg, #93c5fd, #bfdbfe)',
+  'linear-gradient(135deg, #fcd34d, #fde68a)',
+  'linear-gradient(135deg, #f9a875, #fed7aa)',
+  'linear-gradient(135deg, #c4b5fd, #ddd6fe)',
+]
+function bgGradient(name: string) {
+  let hash = 0
+  for (const c of name) hash = (hash * 31 + c.charCodeAt(0)) & 0xffffffff
+  return BG_GRADIENTS[Math.abs(hash) % BG_GRADIENTS.length]
 }
 
 export default function RecipesPage() {
@@ -25,11 +47,15 @@ export default function RecipesPage() {
   const [importText, setImportText] = useState('')
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
+  // After AI parses the recipe, we show a preview before saving
+  const [importPreview, setImportPreview] = useState<Omit<Recipe, 'id' | 'rating'> | null>(null)
+  const [importImageUrl, setImportImageUrl] = useState('')
+  const [importSaving, setImportSaving] = useState(false)
   const [selected, setSelected] = useState<Recipe | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: '', description: '', ingredients: '', instructions: '',
-    servings: 4, prep_time: 30, tags: '',
+    servings: 4, prep_time: 30, tags: '', image_url: '',
   })
   const supabase = createClient()
 
@@ -60,10 +86,11 @@ export default function RecipesPage() {
       servings: form.servings,
       prep_time: form.prep_time,
       tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
+      image_url: form.image_url.trim() || null,
     }).select().single()
     if (data) {
       setRecipes(prev => [...prev, data])
-      setForm({ name: '', description: '', ingredients: '', instructions: '', servings: 4, prep_time: 30, tags: '' })
+      setForm({ name: '', description: '', ingredients: '', instructions: '', servings: 4, prep_time: 30, tags: '', image_url: '' })
       setShowAdd(false)
     }
   }
@@ -74,6 +101,7 @@ export default function RecipesPage() {
     if (selected?.id === id) setSelected(prev => prev ? { ...prev, rating } : null)
   }
 
+  // Step 1: Parse recipe text with AI
   const handleImportFromText = async () => {
     if (!importText.trim() || !userId) return
     setImporting(true)
@@ -91,25 +119,53 @@ export default function RecipesPage() {
         return
       }
       const r = data.recipe
-      const { data: saved } = await supabase.from('recipes').insert({
-        user_id: userId,
-        name: r.name,
+      setImportPreview({
+        name: r.name || '',
         description: r.description || '',
         ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
         instructions: r.instructions || '',
         servings: r.servings || 4,
         prep_time: r.prep_time || 30,
         tags: Array.isArray(r.tags) ? r.tags : [],
-      }).select().single()
-      if (saved) {
-        setRecipes(prev => [...prev, saved])
-        setShowImport(false)
-        setImportText('')
-      }
+        image_url: null,
+      })
     } catch {
       setImportError('Something went wrong. Please try again.')
     }
     setImporting(false)
+  }
+
+  // Step 2: Save parsed recipe with optional image
+  const handleSaveImport = async () => {
+    if (!importPreview || !userId) return
+    setImportSaving(true)
+    const { data: saved } = await supabase.from('recipes').insert({
+      user_id: userId,
+      name: importPreview.name,
+      description: importPreview.description,
+      ingredients: importPreview.ingredients,
+      instructions: importPreview.instructions,
+      servings: importPreview.servings,
+      prep_time: importPreview.prep_time,
+      tags: importPreview.tags,
+      image_url: importImageUrl.trim() || null,
+    }).select().single()
+    if (saved) {
+      setRecipes(prev => [...prev, saved])
+      setShowImport(false)
+      setImportText('')
+      setImportPreview(null)
+      setImportImageUrl('')
+    }
+    setImportSaving(false)
+  }
+
+  const closeImport = () => {
+    setShowImport(false)
+    setImportError('')
+    setImportText('')
+    setImportPreview(null)
+    setImportImageUrl('')
   }
 
   const filtered = recipes.filter(r =>
@@ -122,7 +178,7 @@ export default function RecipesPage() {
       {[1, 2, 3, 4, 5].map(star => (
         <button
           key={star}
-          onClick={() => handleRate(recipe.id, star)}
+          onClick={(e) => { e.stopPropagation(); handleRate(recipe.id, star) }}
           className="text-lg hover:scale-110 transition-transform"
         >
           {star <= (recipe.rating || 0) ? '⭐' : '☆'}
@@ -192,37 +248,67 @@ export default function RecipesPage() {
               <div
                 key={recipe.id}
                 onClick={() => setSelected(recipe)}
-                className="rounded-2xl p-5 cursor-pointer hover:shadow-sm transition-shadow"
+                className="rounded-2xl cursor-pointer hover:shadow-md transition-shadow overflow-hidden"
                 style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
               >
-                <div className="flex items-start justify-between mb-2">
-                  <h3 className="font-medium" style={{ color: 'var(--foreground)' }}>{recipe.name}</h3>
+                {/* Image or gradient placeholder */}
+                <div className="relative w-full" style={{ paddingTop: '52%' }}>
+                  {recipe.image_url ? (
+                    <img
+                      src={recipe.image_url}
+                      alt={recipe.name}
+                      className="absolute inset-0 w-full h-full object-cover"
+                      onError={e => {
+                        const t = e.currentTarget
+                        t.style.display = 'none'
+                        if (t.parentElement) {
+                          t.parentElement.style.background = bgGradient(recipe.name)
+                          const span = document.createElement('span')
+                          span.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:2.5rem'
+                          span.textContent = foodEmoji(recipe.name)
+                          t.parentElement.appendChild(span)
+                        }
+                      }}
+                    />
+                  ) : (
+                    <div
+                      className="absolute inset-0 flex items-center justify-center"
+                      style={{ background: bgGradient(recipe.name) }}
+                    >
+                      <span className="text-4xl">{foodEmoji(recipe.name)}</span>
+                    </div>
+                  )}
                 </div>
-                {recipe.description && (
-                  <p className="text-sm mb-3 line-clamp-2" style={{ color: 'var(--muted)' }}>
-                    {recipe.description}
-                  </p>
-                )}
-                <div className="flex items-center justify-between">
-                  <StarRating recipe={recipe} />
-                  <div className="flex gap-3 text-xs" style={{ color: 'var(--muted)' }}>
-                    {recipe.prep_time && <span>⏱ {recipe.prep_time}m</span>}
-                    {recipe.servings && <span>👥 {recipe.servings}</span>}
+
+                {/* Card content */}
+                <div className="p-4">
+                  <h3 className="font-medium mb-1" style={{ color: 'var(--foreground)' }}>{recipe.name}</h3>
+                  {recipe.description && (
+                    <p className="text-sm mb-3 line-clamp-2" style={{ color: 'var(--muted)' }}>
+                      {recipe.description}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <StarRating recipe={recipe} />
+                    <div className="flex gap-3 text-xs" style={{ color: 'var(--muted)' }}>
+                      {recipe.prep_time && <span>⏱ {recipe.prep_time}m</span>}
+                      {recipe.servings && <span>👥 {recipe.servings}</span>}
+                    </div>
                   </div>
+                  {recipe.tags?.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-3">
+                      {recipe.tags.map(tag => (
+                        <span
+                          key={tag}
+                          className="text-xs px-2 py-0.5 rounded-full"
+                          style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                {recipe.tags?.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-3">
-                    {recipe.tags.map(tag => (
-                      <span
-                        key={tag}
-                        className="text-xs px-2 py-0.5 rounded-full"
-                        style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
               </div>
             ))}
           </div>
@@ -236,36 +322,88 @@ export default function RecipesPage() {
             onClick={() => setSelected(null)}
           >
             <div
-              className="w-full max-w-lg rounded-2xl p-6 max-h-[80vh] overflow-y-auto"
+              className="w-full max-w-lg rounded-2xl max-h-[85vh] overflow-y-auto"
               style={{ background: 'var(--card)' }}
               onClick={e => e.stopPropagation()}
             >
-              <div className="flex items-start justify-between mb-4">
-                <h2 className="text-xl font-semibold" style={{ color: 'var(--foreground)' }}>{selected.name}</h2>
-                <button onClick={() => setSelected(null)} style={{ color: 'var(--muted)' }}>✕</button>
+              {/* Hero image / gradient */}
+              <div className="relative w-full rounded-t-2xl overflow-hidden" style={{ paddingTop: '45%' }}>
+                {selected.image_url ? (
+                  <img
+                    src={selected.image_url}
+                    alt={selected.name}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    onError={e => {
+                      const t = e.currentTarget
+                      t.style.display = 'none'
+                      if (t.parentElement) {
+                        t.parentElement.style.background = bgGradient(selected.name)
+                        const span = document.createElement('span')
+                        span.style.cssText = 'position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:4rem'
+                        span.textContent = foodEmoji(selected.name)
+                        t.parentElement.appendChild(span)
+                      }
+                    }}
+                  />
+                ) : (
+                  <div
+                    className="absolute inset-0 flex items-center justify-center"
+                    style={{ background: bgGradient(selected.name) }}
+                  >
+                    <span className="text-6xl">{foodEmoji(selected.name)}</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => setSelected(null)}
+                  className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium"
+                  style={{ background: 'rgba(0,0,0,0.45)', color: '#fff' }}
+                >
+                  ✕
+                </button>
               </div>
-              <StarRating recipe={selected} />
-              {selected.description && (
-                <p className="mt-3 text-sm" style={{ color: 'var(--muted)' }}>{selected.description}</p>
-              )}
-              {selected.ingredients?.length > 0 && (
-                <div className="mt-4">
-                  <p className="font-medium text-sm mb-2" style={{ color: 'var(--foreground)' }}>Ingredients</p>
-                  <ul className="space-y-1">
-                    {selected.ingredients.map((ing, i) => (
-                      <li key={i} className="text-sm flex gap-2" style={{ color: 'var(--muted)' }}>
-                        <span>•</span> {ing}
-                      </li>
+
+              <div className="p-6">
+                <h2 className="text-xl font-semibold mb-2" style={{ color: 'var(--foreground)' }}>{selected.name}</h2>
+                <StarRating recipe={selected} />
+                <div className="flex gap-4 mt-2 text-sm" style={{ color: 'var(--muted)' }}>
+                  {selected.prep_time && <span>⏱ {selected.prep_time} min</span>}
+                  {selected.servings && <span>👥 {selected.servings} servings</span>}
+                </div>
+                {selected.description && (
+                  <p className="mt-3 text-sm" style={{ color: 'var(--muted)' }}>{selected.description}</p>
+                )}
+                {selected.tags?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-3">
+                    {selected.tags.map(tag => (
+                      <span
+                        key={tag}
+                        className="text-xs px-2 py-0.5 rounded-full"
+                        style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                      >
+                        {tag}
+                      </span>
                     ))}
-                  </ul>
-                </div>
-              )}
-              {selected.instructions && (
-                <div className="mt-4">
-                  <p className="font-medium text-sm mb-2" style={{ color: 'var(--foreground)' }}>Instructions</p>
-                  <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--muted)' }}>{selected.instructions}</p>
-                </div>
-              )}
+                  </div>
+                )}
+                {selected.ingredients?.length > 0 && (
+                  <div className="mt-5">
+                    <p className="font-medium text-sm mb-2" style={{ color: 'var(--foreground)' }}>Ingredients</p>
+                    <ul className="space-y-1">
+                      {selected.ingredients.map((ing, i) => (
+                        <li key={i} className="text-sm flex gap-2" style={{ color: 'var(--muted)' }}>
+                          <span>•</span> {ing}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {selected.instructions && (
+                  <div className="mt-5">
+                    <p className="font-medium text-sm mb-2" style={{ color: 'var(--foreground)' }}>Instructions</p>
+                    <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--muted)' }}>{selected.instructions}</p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -275,55 +413,145 @@ export default function RecipesPage() {
           <div
             className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
             style={{ background: 'rgba(0,0,0,0.4)' }}
-            onClick={() => { setShowImport(false); setImportError(''); setImportText('') }}
+            onClick={closeImport}
           >
             <div
-              className="w-full max-w-lg rounded-2xl p-6"
+              className="w-full max-w-lg rounded-2xl p-6 max-h-[85vh] overflow-y-auto"
               style={{ background: 'var(--card)' }}
               onClick={e => e.stopPropagation()}
             >
-              <h2 className="text-xl font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Import recipe</h2>
-              <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>
-                Open the recipe page, select all the text (Cmd+A), copy it, then paste it below.
-              </p>
-              <p className="text-xs mb-4 px-3 py-2 rounded-xl" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
-                Works with any recipe site — BBC Good Food, AllRecipes, NYT Cooking, and more.
-              </p>
-              <textarea
-                value={importText}
-                onChange={e => { setImportText(e.target.value); setImportError('') }}
-                placeholder="Paste the recipe text here…"
-                rows={6}
-                className="w-full px-4 py-3 rounded-xl border text-sm outline-none resize-none mb-3"
-                style={{ borderColor: importError ? 'red' : 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
-                autoFocus
-              />
-              {importError && (
-                <p className="text-xs mb-3" style={{ color: 'red' }}>{importError}</p>
+              {!importPreview ? (
+                <>
+                  <h2 className="text-xl font-semibold mb-1" style={{ color: 'var(--foreground)' }}>Import recipe</h2>
+                  <p className="text-sm mb-1" style={{ color: 'var(--muted)' }}>
+                    Open the recipe page, select all the text (Cmd+A), copy it, then paste it below.
+                  </p>
+                  <p className="text-xs mb-4 px-3 py-2 rounded-xl" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
+                    Works with any recipe site — BBC Good Food, AllRecipes, NYT Cooking, and more.
+                  </p>
+                  <textarea
+                    value={importText}
+                    onChange={e => { setImportText(e.target.value); setImportError('') }}
+                    placeholder="Paste the recipe text here…"
+                    rows={6}
+                    className="w-full px-4 py-3 rounded-xl border text-sm outline-none resize-none mb-3"
+                    style={{ borderColor: importError ? 'red' : 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
+                    autoFocus
+                  />
+                  {importError && (
+                    <p className="text-xs mb-3" style={{ color: 'red' }}>{importError}</p>
+                  )}
+                  {importing && (
+                    <div className="flex items-center gap-2 text-sm mb-3" style={{ color: 'var(--muted)' }}>
+                      <span className="animate-spin inline-block">✨</span>
+                      Extracting recipe…
+                    </div>
+                  )}
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleImportFromText}
+                      disabled={importing || !importText.trim()}
+                      className="flex-1 py-3 rounded-xl text-white text-sm font-medium disabled:opacity-50"
+                      style={{ background: 'var(--primary)' }}
+                    >
+                      {importing ? 'Extracting…' : 'Extract recipe'}
+                    </button>
+                    <button
+                      onClick={closeImport}
+                      className="px-5 py-3 rounded-xl text-sm font-medium"
+                      style={{ background: 'var(--border)', color: 'var(--muted)' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 mb-4">
+                    <button onClick={() => setImportPreview(null)} style={{ color: 'var(--muted)' }} className="text-lg">←</button>
+                    <h2 className="text-xl font-semibold" style={{ color: 'var(--foreground)' }}>Recipe found!</h2>
+                  </div>
+
+                  {/* Preview card */}
+                  <div
+                    className="rounded-xl p-4 mb-4"
+                    style={{ background: 'var(--background)', border: '1px solid var(--border)' }}
+                  >
+                    {/* Preview image */}
+                    <div
+                      className="w-full rounded-lg mb-3 flex items-center justify-center overflow-hidden"
+                      style={{
+                        height: '140px',
+                        background: importImageUrl ? undefined : bgGradient(importPreview.name)
+                      }}
+                    >
+                      {importImageUrl ? (
+                        <img
+                          src={importImageUrl}
+                          alt={importPreview.name}
+                          className="w-full h-full object-cover rounded-lg"
+                          onError={e => { e.currentTarget.style.display = 'none' }}
+                        />
+                      ) : (
+                        <span className="text-5xl">{foodEmoji(importPreview.name)}</span>
+                      )}
+                    </div>
+
+                    <p className="font-semibold text-base mb-1" style={{ color: 'var(--foreground)' }}>{importPreview.name}</p>
+                    {importPreview.description && (
+                      <p className="text-sm mb-2 line-clamp-2" style={{ color: 'var(--muted)' }}>{importPreview.description}</p>
+                    )}
+                    <div className="flex gap-4 text-xs" style={{ color: 'var(--muted)' }}>
+                      <span>⏱ {importPreview.prep_time}m</span>
+                      <span>👥 {importPreview.servings} servings</span>
+                      <span>🥕 {importPreview.ingredients.length} ingredients</span>
+                    </div>
+                    {importPreview.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {importPreview.tags.map(tag => (
+                          <span key={tag} className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Optional photo URL */}
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>
+                      Photo URL <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+                    </label>
+                    <input
+                      type="url"
+                      value={importImageUrl}
+                      onChange={e => setImportImageUrl(e.target.value)}
+                      placeholder="https://example.com/photo.jpg"
+                      className="w-full px-4 py-3 rounded-xl border text-sm outline-none"
+                      style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
+                    />
+                    <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Right-click a photo on the recipe page → Copy image address</p>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleSaveImport}
+                      disabled={importSaving}
+                      className="flex-1 py-3 rounded-xl text-white text-sm font-medium disabled:opacity-50"
+                      style={{ background: 'var(--primary)' }}
+                    >
+                      {importSaving ? 'Saving…' : 'Save recipe'}
+                    </button>
+                    <button
+                      onClick={closeImport}
+                      className="px-5 py-3 rounded-xl text-sm font-medium"
+                      style={{ background: 'var(--border)', color: 'var(--muted)' }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
               )}
-              {importing && (
-                <div className="flex items-center gap-2 text-sm mb-3" style={{ color: 'var(--muted)' }}>
-                  <span className="animate-spin inline-block">✨</span>
-                  Extracting recipe…
-                </div>
-              )}
-              <div className="flex gap-3">
-                <button
-                  onClick={handleImportFromText}
-                  disabled={importing || !importText.trim()}
-                  className="flex-1 py-3 rounded-xl text-white text-sm font-medium disabled:opacity-50"
-                  style={{ background: 'var(--primary)' }}
-                >
-                  {importing ? 'Importing…' : 'Import recipe'}
-                </button>
-                <button
-                  onClick={() => { setShowImport(false); setImportError(''); setImportText('') }}
-                  className="px-5 py-3 rounded-xl text-sm font-medium"
-                  style={{ background: 'var(--border)', color: 'var(--muted)' }}
-                >
-                  Cancel
-                </button>
-              </div>
             </div>
           </div>
         )}
@@ -360,6 +588,32 @@ export default function RecipesPage() {
                     />
                   </div>
                 ))}
+
+                {/* Photo URL field */}
+                <div>
+                  <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>
+                    Photo URL <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={form.image_url}
+                    onChange={e => setForm(prev => ({ ...prev, image_url: e.target.value }))}
+                    placeholder="https://example.com/photo.jpg"
+                    className="w-full px-4 py-3 rounded-xl border text-sm outline-none"
+                    style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
+                  />
+                  {form.image_url && (
+                    <div className="mt-2 rounded-xl overflow-hidden" style={{ height: '100px' }}>
+                      <img
+                        src={form.image_url}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                        onError={e => { e.currentTarget.style.opacity = '0.3' }}
+                      />
+                    </div>
+                  )}
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>
                     Ingredients (one per line)
