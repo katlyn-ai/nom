@@ -132,19 +132,27 @@ export default function RecipesPage() {
       m => m.day_index === dayIndex && m.meal_type === primaryMealType
     )
 
+    // Carry the recipe's real ingredients and prep time into meal_plans so the
+    // dashboard doesn't call Claude to re-invent them from just the meal name
+    const mealPayload = {
+      custom_name: recipe.name,
+      ingredients: recipe.ingredients?.length ? recipe.ingredients : null,
+      cooking_time_minutes: recipe.prep_time || null,
+    }
+
     if (existing?.id) {
       await supabase.from('meal_plans')
-        .update({ custom_name: recipe.name })
+        .update(mealPayload)
         .eq('id', existing.id)
       setMealPlanEntries(prev =>
-        prev.map(m => m.id === existing.id ? { ...m, custom_name: recipe.name } : m)
+        prev.map(m => m.id === existing.id ? { ...m, ...mealPayload } : m)
       )
     } else {
       const { data } = await supabase.from('meal_plans').insert({
         user_id: userId,
         day_index: dayIndex,
         meal_type: primaryMealType,
-        custom_name: recipe.name,
+        ...mealPayload,
       }).select().single()
       if (data) setMealPlanEntries(prev => [...prev, data])
     }
