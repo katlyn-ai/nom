@@ -20,10 +20,12 @@ const ALL_MEAL_TYPES = [
   { key: 'snack', label: 'Snack', Icon: CookieIcon },
   { key: 'dinner', label: 'Dinner', Icon: MoonIcon },
 ]
-const FALLBACK_MEALS = [
-  'Pasta Carbonara', 'Chicken Stir Fry', 'Vegetable Curry',
-  'Salmon with Rice', 'Tomato Soup', 'Greek Salad', 'Beef Tacos',
-]
+const FALLBACK_MEALS: Record<string, string[]> = {
+  breakfast: ['Avocado Toast with Poached Eggs', 'Greek Yogurt Parfait', 'Banana Oat Pancakes', 'Spinach Omelette', 'Overnight Oats', 'Smoothie Bowl', 'Veggie Breakfast Burrito'],
+  lunch: ['Caesar Salad with Chicken', 'Roasted Veggie Grain Bowl', 'BLT on Sourdough', 'Tomato Basil Soup', 'Tuna Nicoise Salad', 'Chicken Avocado Wrap', 'Lentil Soup'],
+  snack: ['Apple with Almond Butter', 'Hummus with Veggies', 'Trail Mix', 'Greek Yogurt with Honey', 'Rice Cakes with Avocado', 'Cheese & Crackers', 'Edamame'],
+  dinner: ['Pasta Carbonara', 'Chicken Stir Fry', 'Vegetable Curry', 'Salmon with Rice', 'Beef Tacos', 'Greek Salad with Falafel', 'Shakshuka'],
+}
 
 const CUISINE_OPTIONS = ['Italian', 'Asian', 'Mexican', 'Mediterranean', 'Middle Eastern', 'Indian', 'American', 'French', 'Japanese']
 const PROTEIN_OPTIONS = ['Chicken', 'Beef', 'Pork', 'Fish', 'Seafood', 'Plant-based', 'Eggs', 'Lamb']
@@ -57,7 +59,7 @@ export default function MealsPage() {
   const [generating, setGenerating] = useState(false)
   const [showPanel, setShowPanel] = useState(false)
   const [prompt, setPrompt] = useState('')
-  const [suggestions, setSuggestions] = useState<string[]>([])
+  const [suggestions, setSuggestions] = useState<Record<string, string[]>>({})
   const [generateError, setGenerateError] = useState('')
   const [filters, setFilters] = useState<Filters>({ cuisines: [], proteins: [], maxTime: null, usePantry: false, showFilters: false })
   // localEdits tracks unsaved typing: key = `${dayIndex}-${mealType}`
@@ -176,16 +178,22 @@ export default function MealsPage() {
     await supabase.from('settings').update({ [field]: newVal }).eq('user_id', user.id)
   }
 
+  const buildFallback = () => {
+    const fb: Record<string, string[]> = {}
+    activeMealTypes.forEach(mt => { fb[mt.key] = FALLBACK_MEALS[mt.key] || FALLBACK_MEALS.dinner })
+    return fb
+  }
+
   const handleGenerate = async () => {
     setGenerating(true)
-    setSuggestions([])
+    setSuggestions({})
     setGenerateError('')
     setShowPanel(true)
 
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
-        setSuggestions(FALLBACK_MEALS)
+        setSuggestions(buildFallback())
         setGenerating(false)
         return
       }
@@ -206,51 +214,51 @@ export default function MealsPage() {
       })
 
       if (!res.ok) {
-        setSuggestions(FALLBACK_MEALS)
+        setSuggestions(buildFallback())
         setGenerating(false)
         return
       }
 
       const data = await res.json()
-      const suggested = Array.isArray(data.meals) && data.meals.length > 0
-        ? data.meals
-        : FALLBACK_MEALS
+      const suggested = data.meals && typeof data.meals === 'object' && !Array.isArray(data.meals)
+        ? data.meals as Record<string, string[]>
+        : buildFallback()
 
       setSuggestions(suggested)
     } catch (err) {
       console.error('Generate error:', err)
-      setSuggestions(FALLBACK_MEALS)
+      setSuggestions(buildFallback())
       setGenerateError('Could not reach AI — showing defaults instead.')
     } finally {
       setGenerating(false)
     }
   }
 
-  const handleChipClick = async (meal: string, index: number) => {
+  const handleChipClick = async (meal: string, mealType: string, index: number) => {
     for (let d = 0; d < 7; d++) {
-      const existing = meals.find(m => m.day_index === d && m.meal_type === primaryMealType)
+      const existing = meals.find(m => m.day_index === d && m.meal_type === mealType)
       if (!existing?.custom_name) {
-        await saveMeal(d, primaryMealType, meal)
-        setSuggestions(prev => prev.filter((_, i) => i !== index))
+        await saveMeal(d, mealType, meal)
+        setSuggestions(prev => ({ ...prev, [mealType]: (prev[mealType] || []).filter((_, i) => i !== index) }))
         return
       }
     }
-    await saveMeal(6, primaryMealType, meal)
-    setSuggestions(prev => prev.filter((_, i) => i !== index))
+    await saveMeal(6, mealType, meal)
+    setSuggestions(prev => ({ ...prev, [mealType]: (prev[mealType] || []).filter((_, i) => i !== index) }))
   }
 
   const handleFillWeek = async () => {
-    let si = 0
-    for (let d = 0; d < 7 && si < suggestions.length; d++) {
-      for (const mt of activeMealTypes) {
-        if (si >= suggestions.length) break
+    for (const mt of activeMealTypes) {
+      const typeSuggestions = suggestions[mt.key] || []
+      let si = 0
+      for (let d = 0; d < 7 && si < typeSuggestions.length; d++) {
         const existing = meals.find(m => m.day_index === d && m.meal_type === mt.key)
         if (!existing?.custom_name) {
-          await saveMeal(d, mt.key, suggestions[si++])
+          await saveMeal(d, mt.key, typeSuggestions[si++])
         }
       }
     }
-    setSuggestions([])
+    setSuggestions({})
     setShowPanel(false)
   }
 
@@ -562,9 +570,9 @@ export default function MealsPage() {
               </p>
             )}
 
-            {!generating && suggestions.length > 0 && (
+            {!generating && Object.values(suggestions).some(arr => arr.length > 0) && (
               <>
-                <div className="flex items-center justify-between mb-2.5">
+                <div className="flex items-center justify-between mb-3">
                   <p className="text-sm" style={{ color: 'var(--muted)' }}>
                     Click to add to next free slot:
                   </p>
@@ -576,17 +584,33 @@ export default function MealsPage() {
                     Fill whole week
                   </button>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {suggestions.map((s, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleChipClick(s, i)}
-                      className="text-sm px-3 py-1.5 rounded-full font-medium transition-all hover:opacity-80 active:scale-95"
-                      style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
-                    >
-                      + {s}
-                    </button>
-                  ))}
+                <div className="space-y-4">
+                  {activeMealTypes.map(({ key, label, Icon }) => {
+                    const typeSuggestions = suggestions[key] || []
+                    if (!typeSuggestions.length) return null
+                    return (
+                      <div key={key}>
+                        <p
+                          className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide mb-2"
+                          style={{ color: 'var(--muted)' }}
+                        >
+                          <Icon size={11} /> {label}
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {typeSuggestions.map((s, i) => (
+                            <button
+                              key={i}
+                              onClick={() => handleChipClick(s, key, i)}
+                              className="text-sm px-3 py-1.5 rounded-full font-medium transition-all hover:opacity-80 active:scale-95"
+                              style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                            >
+                              + {s}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </>
             )}
