@@ -144,7 +144,9 @@ export default function PantryPage() {
         body: JSON.stringify({ userId: user.id }),
       })
       const data = await res.json()
-      if (data.categorised?.length) {
+      if (data.error) {
+        setCategoriseToast(`Error: ${data.error} — try again`)
+      } else if (data.categorised?.length) {
         // Apply new categories to local state
         setItems(prev => prev.map(item => {
           const match = data.categorised.find((c: { id: string; category: string }) => c.id === item.id)
@@ -152,7 +154,7 @@ export default function PantryPage() {
         }))
         setCategoriseToast(`✓ Organised ${data.updated} item${data.updated !== 1 ? 's' : ''} into categories`)
       } else {
-        setCategoriseToast('Nothing to organise')
+        setCategoriseToast('All items are already organised')
       }
     } catch {
       setCategoriseToast('Could not organise — try again')
