@@ -9,6 +9,45 @@ import { SparklesIcon, ShoppingCartIcon, BookOpenIcon, CreditCardIcon, CalendarD
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
+// ── Fuzzy pantry matching ────────────────────────────────────────────────────
+// Strips leading quantity/unit from an ingredient string:
+//   "100g sundried tomatoes" → "sundried tomatoes"
+//   "3 cloves garlic"        → "garlic"
+//   "1 bunch fresh basil"    → "fresh basil"
+function stripQuantity(s: string): string {
+  return s
+    .replace(/^[\d.,]+\s*(?:g|kg|ml|l|oz|lb|cups?|tbsp|tsp|cloves?|pieces?|slices?|bunche?s?|heads?|cans?|tins?|large|medium|small|handful|pinch|sprigs?)\s+/i, '')
+    .trim()
+}
+
+// Strips preparation qualifiers so "sundried tomatoes in oil" → "sundried tomatoes"
+const PREP_QUALIFIERS = [
+  'in oil', 'in brine', 'in water', 'in syrup',
+  'frozen', 'fresh', 'dried', 'canned', 'tinned', 'smoked',
+  'cooked', 'raw', 'whole', 'ground', 'sliced', 'diced',
+  'chopped', 'minced', 'crushed', 'peeled', 'cubed', 'grated',
+]
+function stripPrepQualifiers(s: string): string {
+  let r = s
+  for (const q of PREP_QUALIFIERS) r = r.replace(new RegExp(`\\b${q}\\b`, 'gi'), '')
+  return r.replace(/\s+/g, ' ').trim()
+}
+
+// Returns true if the ingredient is covered by something in the pantry
+function matchesPantry(ingredient: string, pantryItems: string[]): boolean {
+  const ingLower = ingredient.toLowerCase()
+  const ingCore = stripQuantity(ingLower)       // e.g. "sundried tomatoes"
+  return pantryItems.some(p => {
+    const pCore = stripPrepQualifiers(p)        // e.g. "sundried tomatoes" (from "sundried tomatoes in oil")
+    return (
+      ingLower.includes(p)       ||             // exact: "fresh garlic" includes "garlic"
+      p.includes(ingCore)        ||             // "sundried tomatoes in oil" includes "sundried tomatoes"
+      ingCore.includes(pCore)    ||             // "sundried tomatoes" includes "sundried tomatoes"
+      pCore.includes(ingCore)                   // reverse: broader pantry entry
+    )
+  })
+}
+
 type Meal = {
   id: string
   day_index: number
@@ -48,6 +87,8 @@ export default function DashboardPage() {
   const [selectedMeal, setSelectedMeal] = useState<Meal | null>(null)
   const [mealDetails, setMealDetails] = useState<MealDetails | null>(null)
   const [pantryItems, setPantryItems] = useState<string[]>([])
+  const [addingToCart, setAddingToCart] = useState(false)
+  const [cartAdded, setCartAdded] = useState(false)
   // swappedIngredients: maps original ingredient → substitute
   const [swappedIngredients, setSwappedIngredients] = useState<Record<string, string | 'loading'>>({})
 
@@ -125,14 +166,36 @@ export default function DashboardPage() {
     setSelectedMeal(null)
     setMealDetails(null)
     setSwappedIngredients({})
+    setCartAdded(false)
+  }
+
+  const addMissingToCart = async () => {
+    if (!mealDetails || missingIngredients.length === 0 || addingToCart) return
+    setAddingToCart(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setAddingToCart(false); return }
+      await Promise.all(
+        missingIngredients.map(ing =>
+          supabase.from('shopping_items').insert({
+            user_id: user.id,
+            name: ing,
+            category: 'Other',
+            checked: false,
+            added_by: user.id,
+          })
+        )
+      )
+      setCartAdded(true)
+    } catch { /* silent */ }
+    setAddingToCart(false)
   }
 
   const mealCount = meals.length
 
-  const missingIngredients = mealDetails?.ingredients?.filter(ing => {
-    // Check if any pantry item name appears in this ingredient string
-    return !pantryItems.some(p => ing.toLowerCase().includes(p))
-  }) ?? []
+  const missingIngredients = mealDetails?.ingredients?.filter(ing =>
+    !matchesPantry(ing, pantryItems)
+  ) ?? []
 
   if (loading) return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
@@ -375,7 +438,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="space-y-2">
                         {mealDetails.ingredients.map((ing, i) => {
-                          const inPantry = pantryItems.some(p => ing.toLowerCase().includes(p))
+                          const inPantry = matchesPantry(ing, pantryItems)
                           const swapState = swappedIngredients[ing]
                           const isSwapping = swapState === 'loading'
                           const swapped = swapState && swapState !== 'loading'
@@ -471,14 +534,41 @@ export default function DashboardPage() {
 
             {/* Footer actions */}
             <div className="px-6 py-5" style={{ borderTop: '1px solid var(--border)' }}>
-              <Link
-                href="/shopping"
-                className="block w-full py-3 rounded-2xl text-white text-sm font-medium text-center"
-                style={{ background: 'var(--gradient-primary)' }}
-              >
-                <ShoppingCartIcon size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
-                Add missing to shopping list
-              </Link>
+              {cartAdded ? (
+                <div className="flex items-center gap-3">
+                  <div
+                    className="flex-1 py-3 rounded-2xl text-sm font-medium text-center"
+                    style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                  >
+                    ✓ {missingIngredients.length} item{missingIngredients.length !== 1 ? 's' : ''} added
+                  </div>
+                  <Link
+                    href="/shopping"
+                    className="px-4 py-3 rounded-2xl text-white text-sm font-medium flex-shrink-0"
+                    style={{ background: 'var(--gradient-primary)' }}
+                  >
+                    View list →
+                  </Link>
+                </div>
+              ) : (
+                <button
+                  onClick={addMissingToCart}
+                  disabled={addingToCart || mealDetails?.loading || missingIngredients.length === 0}
+                  className="w-full py-3 rounded-2xl text-white text-sm font-medium disabled:opacity-50"
+                  style={{ background: 'var(--gradient-primary)' }}
+                >
+                  {addingToCart ? (
+                    'Adding…'
+                  ) : missingIngredients.length === 0 ? (
+                    '✓ All ingredients in pantry'
+                  ) : (
+                    <>
+                      <ShoppingCartIcon size={14} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+                      Add {missingIngredients.length} missing to shopping list
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </>
