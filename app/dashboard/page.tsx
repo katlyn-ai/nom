@@ -42,9 +42,37 @@ function stripPrepQualifiers(s: string): string {
   return r.replace(/\s+/g, ' ').trim()
 }
 
-// Full normalisation: strip parentheticals, then prep qualifiers, then leading quantity
+// Synonym groups — all entries in a group are treated as interchangeable.
+// The first entry is the canonical form everything gets mapped to.
+const SYNONYM_GROUPS: string[][] = [
+  ['ground beef', 'minced meat', 'minced beef', 'ground meat', 'mince'],
+  ['spring onion', 'scallion', 'green onion'],
+  ['aubergine', 'eggplant'],
+  ['courgette', 'zucchini'],
+  ['coriander', 'cilantro'],
+  ['rocket', 'arugula'],
+  ['beetroot', 'beet'],
+  ['chickpeas', 'garbanzo beans', 'garbanzo'],
+  ['stock', 'broth'],
+  ['prawn', 'shrimp'],
+  ['natural yogurt', 'plain yogurt', 'greek yogurt', 'yoghurt', 'yogurt'],
+  ['passata', 'tomato puree', 'tomato sauce', 'strained tomatoes'],
+]
+function applySynonyms(s: string): string {
+  let r = s
+  for (const group of SYNONYM_GROUPS) {
+    const canonical = group[0]
+    for (const term of group) {
+      // match singular and plural forms (e.g. "scallion" also catches "scallions")
+      r = r.replace(new RegExp(`\\b${term}s?\\b`, 'gi'), canonical)
+    }
+  }
+  return r
+}
+
+// Full normalisation: strip parentheticals → prep qualifiers → synonyms → leading quantity
 function normalise(s: string): string {
-  return stripPrepQualifiers(stripParenthetical(stripQuantity(s.toLowerCase())))
+  return applySynonyms(stripPrepQualifiers(stripParenthetical(stripQuantity(s.toLowerCase()))))
 }
 
 // Returns true if the ingredient is covered by something in the pantry
