@@ -33,6 +33,8 @@ const PREP_QUALIFIERS = [
   'smoked', 'cooked', 'raw', 'whole', 'ground', 'sliced', 'diced',
   'chopped', 'minced', 'crushed', 'peeled', 'cubed', 'grated',
   'organic', 'homemade', 'store-bought', 'roasted', 'toasted',
+  'light', 'dark', 'sweet', 'mild', 'hot', 'spicy', 'low-sodium',
+  'reduced', 'full-fat', 'low-fat', 'skimmed', 'semi-skimmed',
 ]
 function stripPrepQualifiers(s: string): string {
   let r = s
