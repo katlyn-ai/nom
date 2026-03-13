@@ -39,25 +39,38 @@ export async function POST(request: Request) {
     ? `\nShopping at: ${settings.preferred_store}.`
     : ''
 
-  // Build pantry context — now includes quantities for smart diffing
+  // Build pantry context — includes quantities for smart diffing
   let pantryContext = ''
   if (pantryItems && pantryItems.length > 0) {
     const pantryLines = pantryItems.map(p =>
       p.quantity ? `${p.name} (have: ${p.quantity})` : p.name
-    ).join(', ')
+    ).join('\n')
 
     pantryContext = `
 
 PANTRY INVENTORY (what the user already has at home):
 ${pantryLines}
 
-PANTRY RULES — apply ALL of these:
-1. Match items semantically across languages. Users write items in Estonian, Russian, Finnish, English, or any other language. "Munad" = eggs, "Piim" = milk, "Jahu" = flour etc.
-2. For each ingredient needed in the meals, check if it is in the pantry.
-3. If the pantry item has a quantity (e.g. "have: ca 500g") and the recipe needs less than that — SKIP the ingredient entirely.
-4. If the pantry has some but not enough — add only the MISSING quantity to the shopping list. Example: recipe needs 400g pasta, pantry has ca 200g → add "Pasta" with quantity "200g".
-5. If no quantity is given for a pantry item, assume the user has a reasonable amount and SKIP it.
-6. When in doubt, skip rather than duplicate.`
+PANTRY MATCHING RULES — read carefully before checking any ingredient:
+
+STEP 1 — IDENTIFY ALL INGREDIENTS NEEDED
+List every ingredient for every meal first, with the total quantity needed across the whole week.
+
+STEP 2 — MATCH AGAINST PANTRY (use FUZZY matching)
+When matching a needed ingredient against the pantry, IGNORE preparation qualifiers and focus on the CORE ingredient name:
+- "sundried tomatoes in oil" covers "sundried tomatoes" ✓
+- "frozen peas" covers "peas" ✓
+- "canned chickpeas" covers "chickpeas" ✓
+- "fresh basil" covers "basil" ✓
+- "smoked salmon" covers "salmon" ✓
+Also match across languages: "Munad"=eggs, "Piim"=milk, "Jahu"=flour, "Küüslauk"=garlic, "Sibul"=onion, etc.
+
+STEP 3 — DECIDE WHAT TO BUY
+- Pantry item has a quantity AND quantity is enough → SKIP (do not add to list)
+- Pantry item has a quantity BUT not enough → ADD with MISSING quantity only (e.g. need 400g, have ca 200g → add 200g)
+- Pantry item has NO quantity → SKIP (assume they have enough)
+- Ingredient NOT in pantry at all → ADD with full quantity needed
+- When in doubt whether the pantry covers it → ADD to the list. Missing an item at the store is worse than a duplicate.`
   }
 
   const systemPrompt = `You are a helpful assistant for NOM, a meal planning app.
@@ -89,7 +102,7 @@ Example of the EXACT format required: [{"name":"Orzo","quantity":"300g","categor
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1200,
+        max_tokens: 1800,
         messages: [{ role: 'user', content: userMessage }],
         system: systemPrompt,
       }),
