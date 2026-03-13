@@ -20,12 +20,19 @@ function stripQuantity(s: string): string {
     .trim()
 }
 
+// Strips parenthetical content: "crushed tomatoes (tin)" → "crushed tomatoes"
+function stripParenthetical(s: string): string {
+  return s.replace(/\s*\([^)]*\)/g, '').trim()
+}
+
 // Strips preparation qualifiers so "sundried tomatoes in oil" → "sundried tomatoes"
+// Also covers container words (tin, jar, can) so "crushed tomatoes (tin)" → "tomatoes"
 const PREP_QUALIFIERS = [
   'in oil', 'in brine', 'in water', 'in syrup',
-  'frozen', 'fresh', 'dried', 'canned', 'tinned', 'smoked',
-  'cooked', 'raw', 'whole', 'ground', 'sliced', 'diced',
+  'frozen', 'fresh', 'dried', 'canned', 'tinned', 'tin', 'jarred', 'jar',
+  'smoked', 'cooked', 'raw', 'whole', 'ground', 'sliced', 'diced',
   'chopped', 'minced', 'crushed', 'peeled', 'cubed', 'grated',
+  'organic', 'homemade', 'store-bought', 'roasted', 'toasted',
 ]
 function stripPrepQualifiers(s: string): string {
   let r = s
@@ -33,17 +40,26 @@ function stripPrepQualifiers(s: string): string {
   return r.replace(/\s+/g, ' ').trim()
 }
 
+// Full normalisation: strip parentheticals, then prep qualifiers, then leading quantity
+function normalise(s: string): string {
+  return stripPrepQualifiers(stripParenthetical(stripQuantity(s.toLowerCase())))
+}
+
 // Returns true if the ingredient is covered by something in the pantry
 function matchesPantry(ingredient: string, pantryItems: string[]): boolean {
   const ingLower = ingredient.toLowerCase()
   const ingCore = stripQuantity(ingLower)       // e.g. "sundried tomatoes"
+  const ingNorm = normalise(ingredient)         // e.g. "tomatoes" (all qualifiers stripped)
   return pantryItems.some(p => {
     const pCore = stripPrepQualifiers(p)        // e.g. "sundried tomatoes" (from "sundried tomatoes in oil")
+    const pNorm = normalise(p)                  // e.g. "tomatoes" (from "crushed tomatoes (tin)")
     return (
       ingLower.includes(p)       ||             // exact: "fresh garlic" includes "garlic"
       p.includes(ingCore)        ||             // "sundried tomatoes in oil" includes "sundried tomatoes"
       ingCore.includes(pCore)    ||             // "sundried tomatoes" includes "sundried tomatoes"
-      pCore.includes(ingCore)                   // reverse: broader pantry entry
+      pCore.includes(ingCore)    ||             // reverse: broader pantry entry
+      (ingNorm.length > 2 && pNorm.includes(ingNorm)) ||  // "canned tomatoes" → "tomatoes" matches "crushed tomatoes (tin)" → "tomatoes"
+      (pNorm.length > 2 && ingNorm.includes(pNorm))       // reverse normalised check
     )
   })
 }
