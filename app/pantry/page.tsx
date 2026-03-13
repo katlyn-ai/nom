@@ -11,6 +11,27 @@ type PantryItem = {
   in_stock: boolean
   category: string
   quantity?: string | null
+  expires_at?: string | null
+}
+
+// Returns how urgent the expiry is relative to today
+function expiryStatus(dateStr: string): 'expired' | 'today' | 'soon' | 'upcoming' | 'fine' {
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const exp = new Date(dateStr + 'T00:00:00') // parse as local date
+  const diffDays = Math.round((exp.getTime() - today.getTime()) / 86_400_000)
+  if (diffDays < 0) return 'expired'
+  if (diffDays === 0) return 'today'
+  if (diffDays <= 2) return 'soon'
+  if (diffDays <= 6) return 'upcoming'
+  return 'fine'
+}
+
+const EXPIRY_STYLES: Record<string, { bg: string; color: string; label: (d: string) => string }> = {
+  expired:  { bg: '#FEE2E2', color: '#DC2626', label: () => 'Expired' },
+  today:    { bg: '#FEE2E2', color: '#DC2626', label: () => 'Expires today' },
+  soon:     { bg: '#FEF3C7', color: '#D97706', label: (d) => `Exp ${new Date(d + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` },
+  upcoming: { bg: '#FEF9C3', color: '#A16207', label: (d) => `Exp ${new Date(d + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` },
+  fine:     { bg: 'var(--border)', color: 'var(--muted)', label: (d) => `Exp ${new Date(d + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` },
 }
 
 const CATEGORIES = ['Produce', 'Dairy', 'Meat', 'Pantry', 'Frozen', 'Drinks', 'Other']
@@ -22,6 +43,7 @@ export default function PantryPage() {
   const [loading, setLoading] = useState(true)
   const [newItem, setNewItem] = useState('')
   const [newQuantity, setNewQuantity] = useState('')
+  const [newExpiry, setNewExpiry] = useState('')
   const [category, setCategory] = useState('Other')
   const [outPrompt, setOutPrompt] = useState<{ id: string; name: string } | null>(null)
   const [addingToCart, setAddingToCart] = useState(false)
@@ -62,6 +84,7 @@ export default function PantryPage() {
       category,
       in_stock: true,
       quantity: newQuantity.trim() || null,
+      expires_at: newExpiry || null,
     }).select().single()
     if (error) {
       setAddError(error.message)
@@ -69,6 +92,7 @@ export default function PantryPage() {
       setItems(prev => [...prev, data])
       setNewItem('')
       setNewQuantity('')
+      setNewExpiry('')
     }
     setAdding(false)
   }
@@ -141,6 +165,13 @@ export default function PantryPage() {
   const inStock = items.filter(i => i.in_stock)
   const outOfStock = items.filter(i => !i.in_stock)
 
+  // Items expiring today or already expired
+  const expiringSoon = inStock.filter(i => {
+    if (!i.expires_at) return false
+    const s = expiryStatus(i.expires_at)
+    return s === 'expired' || s === 'today' || s === 'soon'
+  })
+
   const groupedInStock = CATEGORIES.reduce((acc, cat) => {
     const catItems = inStock.filter(i => i.category === cat)
     if (catItems.length > 0) acc[cat] = catItems
@@ -199,6 +230,18 @@ export default function PantryPage() {
               {item.quantity}
             </span>
           )}
+          {item.expires_at && !showCheckmark && (() => {
+            const status = expiryStatus(item.expires_at)
+            const s = EXPIRY_STYLES[status]
+            return (
+              <span
+                className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 font-medium"
+                style={{ background: s.bg, color: s.color }}
+              >
+                {s.label(item.expires_at)}
+              </span>
+            )
+          })()}
         </span>
         <button
           onClick={() => deleteItem(item.id)}
@@ -251,6 +294,19 @@ export default function PantryPage() {
           </div>
         )}
 
+        {/* Expiry warning banner */}
+        {expiringSoon.length > 0 && (
+          <div
+            className="rounded-xl px-4 py-3 mb-4 text-sm"
+            style={{ background: '#FEF3C7', border: '1px solid #FDE68A' }}
+          >
+            <span className="font-semibold" style={{ color: '#92400E' }}>⚠️ Use soon: </span>
+            <span style={{ color: '#78350F' }}>
+              {expiringSoon.map(i => i.name).join(', ')}
+            </span>
+          </div>
+        )}
+
         {/* Add item */}
         <div className="rounded-2xl p-4 mb-6" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
           <div className="flex gap-2 mb-3">
@@ -273,7 +329,7 @@ export default function PantryPage() {
             </button>
           </div>
           {newItem.trim() && (
-            <div className="mb-3">
+            <div className="mb-3 space-y-2">
               <input
                 type="text"
                 value={newQuantity}
@@ -283,6 +339,18 @@ export default function PantryPage() {
                 className="w-full px-4 py-2.5 rounded-xl border text-sm outline-none"
                 style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
               />
+              <div className="flex items-center gap-3">
+                <label className="text-xs flex-shrink-0" style={{ color: 'var(--muted)' }}>
+                  Expiry date <span className="opacity-60">(optional)</span>
+                </label>
+                <input
+                  type="date"
+                  value={newExpiry}
+                  onChange={e => setNewExpiry(e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-xl border text-sm outline-none"
+                  style={{ borderColor: 'var(--border)', background: 'var(--background)', color: newExpiry ? 'var(--foreground)' : 'var(--muted)' }}
+                />
+              </div>
             </div>
           )}
           {addError && (
