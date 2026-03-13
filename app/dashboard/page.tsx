@@ -221,12 +221,27 @@ export default function DashboardPage() {
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { setAddingToCart(false); return }
+
+      // Ask AI to categorise the items so they land in the right section
+      let categories: string[] = missingIngredients.map(() => 'Other')
+      try {
+        const res = await fetch('/api/categorise-shopping', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ items: missingIngredients }),
+        })
+        if (res.ok) {
+          const json = await res.json()
+          if (Array.isArray(json.categorised)) categories = json.categorised
+        }
+      } catch { /* fall back to Other */ }
+
       await Promise.all(
-        missingIngredients.map(ing =>
+        missingIngredients.map((ing, i) =>
           supabase.from('shopping_items').insert({
             user_id: user.id,
             name: ing,
-            category: 'Other',
+            category: categories[i] ?? 'Other',
             checked: false,
             added_by: user.id,
           })
