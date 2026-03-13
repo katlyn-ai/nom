@@ -11,6 +11,7 @@ type ShoppingItem = {
   checked: boolean
   category: string
   added_by: string
+  quantity?: string | null
 }
 
 type StoreItem = { name: string; price: number }
@@ -181,14 +182,16 @@ export default function ShoppingPage() {
           .single(),
         supabase
           .from('pantry_items')
-          .select('name')
+          .select('name, quantity')
           .eq('user_id', user.id)
           .eq('in_stock', true),
       ])
 
-      // Pass pantry item names so the AI skips anything already at home
-      // Items may be in any language — the AI handles cross-language matching
-      const pantryItems = pantryData?.map(p => p.name).filter(Boolean) || []
+      // Pass pantry items with quantities — AI compares needed vs. available
+      // and only adds what's actually missing or short
+      const pantryItems = pantryData
+        ?.filter(p => p.name)
+        .map(p => ({ name: p.name, quantity: p.quantity || null })) || []
 
       // Send meal names + settings + pantry to API — Claude generates the shopping list
       const res = await fetch('/api/generate-shopping-list', {
@@ -206,6 +209,7 @@ export default function ShoppingPage() {
             category: item.category || 'Other',
             checked: false,
             added_by: user.id,
+            quantity: item.quantity || null,
           }).select().single()
           if (inserted) setItems(prev => [...prev, inserted])
         }
@@ -310,10 +314,21 @@ export default function ShoppingPage() {
           {item.checked && <span className="text-white text-xs">✓</span>}
         </button>
         <span
-          className="text-sm flex-1"
+          className="text-sm flex-1 flex items-center gap-2 min-w-0"
           style={{ color: item.checked ? 'var(--muted)' : 'var(--foreground)', textDecoration: item.checked ? 'line-through' : 'none' }}
         >
-          {item.name}
+          <span className="truncate">{item.name}</span>
+          {item.quantity && (
+            <span
+              className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
+              style={{
+                background: item.checked ? 'var(--border)' : 'var(--primary-light)',
+                color: item.checked ? 'var(--muted)' : 'var(--primary)',
+              }}
+            >
+              {item.quantity}
+            </span>
+          )}
         </span>
         <button
           onClick={onDelete}
@@ -612,7 +627,14 @@ export default function ShoppingPage() {
                           style={{ background: 'var(--card)', borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}
                         >
                           <div className="w-4 h-4 rounded border flex-shrink-0" style={{ borderColor: 'var(--border)' }} />
-                          <span className="text-sm" style={{ color: 'var(--foreground)' }}>{item.name}</span>
+                          <span className="text-sm flex items-center gap-1.5 flex-1 min-w-0" style={{ color: 'var(--foreground)' }}>
+                            <span className="truncate">{item.name}</span>
+                            {item.quantity && (
+                              <span className="text-xs px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}>
+                                {item.quantity}
+                              </span>
+                            )}
+                          </span>
                           {selectedStore.items.find(si =>
                             si.name.toLowerCase().includes(item.name.toLowerCase().slice(0, 4))
                           ) && (

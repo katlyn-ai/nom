@@ -10,6 +10,7 @@ type PantryItem = {
   name: string
   in_stock: boolean
   category: string
+  quantity?: string | null
 }
 
 const CATEGORIES = ['Produce', 'Dairy', 'Meat', 'Pantry', 'Frozen', 'Drinks', 'Other']
@@ -20,6 +21,7 @@ export default function PantryPage() {
   const [items, setItems] = useState<PantryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [newItem, setNewItem] = useState('')
+  const [newQuantity, setNewQuantity] = useState('')
   const [category, setCategory] = useState('Other')
   const [outPrompt, setOutPrompt] = useState<{ id: string; name: string } | null>(null)
   const [addingToCart, setAddingToCart] = useState(false)
@@ -59,12 +61,14 @@ export default function PantryPage() {
       name: newItem.trim(),
       category,
       in_stock: true,
+      quantity: newQuantity.trim() || null,
     }).select().single()
     if (error) {
       setAddError(error.message)
     } else if (data) {
       setItems(prev => [...prev, data])
       setNewItem('')
+      setNewQuantity('')
     }
     setAdding(false)
   }
@@ -180,13 +184,21 @@ export default function PantryPage() {
           />
         )}
         <span
-          className="text-sm flex-1"
+          className="text-sm flex-1 flex items-center gap-2 min-w-0"
           style={{
             color: showCheckmark ? 'var(--muted)' : 'var(--foreground)',
             textDecoration: showCheckmark ? 'line-through' : 'none',
           }}
         >
-          {item.name}
+          <span className="truncate">{item.name}</span>
+          {item.quantity && !showCheckmark && (
+            <span
+              className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
+              style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+            >
+              {item.quantity}
+            </span>
+          )}
         </span>
         <button
           onClick={() => deleteItem(item.id)}
@@ -246,7 +258,7 @@ export default function PantryPage() {
               type="text"
               value={newItem}
               onChange={e => setNewItem(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addItem()}
+              onKeyDown={e => { if (e.key === 'Enter' && newItem.trim()) addItem() }}
               placeholder="Add item to pantry…"
               className="flex-1 px-4 py-2.5 rounded-xl border text-sm outline-none"
               style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
@@ -260,6 +272,19 @@ export default function PantryPage() {
               <PlusIcon size={14} /> {adding ? '…' : 'Add'}
             </button>
           </div>
+          {newItem.trim() && (
+            <div className="mb-3">
+              <input
+                type="text"
+                value={newQuantity}
+                onChange={e => setNewQuantity(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addItem() }}
+                placeholder="How much do you have? e.g. ca 500g, a handful, 2 cups…"
+                className="w-full px-4 py-2.5 rounded-xl border text-sm outline-none"
+                style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
+              />
+            </div>
+          )}
           {addError && (
             <p className="text-xs mb-2 px-1" style={{ color: 'red' }}>
               Error: {addError}
