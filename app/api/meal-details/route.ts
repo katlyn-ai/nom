@@ -7,8 +7,35 @@ export async function POST(request: Request) {
 
   const supabase = await createClient()
 
-  // 1. Check meal_plans cache — ingredients being present is enough to skip AI.
-  //    (calories_per_serving may be null for manually-created recipes, that's fine)
+  // 1. Recipe book is always checked FIRST — user's own recipe beats any cached data.
+  //    This prevents old AI-generated cache from overriding a manual recipe.
+  const { data: recipe } = await supabase
+    .from('recipes')
+    .select('ingredients, instructions, prep_time')
+    .ilike('name', mealName)
+    .maybeSingle()
+  if (recipe?.ingredients?.length) {
+    const instructions = recipe.instructions
+      ? (recipe.instructions as string).split('\n').filter(Boolean)
+      : await fetchInstructions(mealName)
+    const result = {
+      cooking_time_minutes: (recipe.prep_time as number) || 30,
+      calories_per_serving: 0,
+      ingredients: recipe.ingredients as string[],
+      instructions,
+    }
+    // Overwrite any stale AI-cached data in meal_plans with the real recipe
+    if (mealPlanId) {
+      await supabase.from('meal_plans').update({
+        cooking_time_minutes: result.cooking_time_minutes,
+        ingredients: result.ingredients,
+        instructions: instructions.length ? instructions : null,
+      }).eq('id', mealPlanId)
+    }
+    return NextResponse.json(result)
+  }
+
+  // 2. Check meal_plans cache for AI-generated meals (no recipe book entry).
   if (mealPlanId) {
     const { data: cached } = await supabase
       .from('meal_plans')
@@ -26,35 +53,6 @@ export async function POST(request: Request) {
         instructions,
       })
     }
-  }
-
-  // 2. Look up the user's recipe book by name — catches meals added to the plan
-  //    before caching was in place, or when calories weren't stored.
-  //    Note: recipes table has no calories_per_serving column, so we don't select it.
-  const { data: recipe } = await supabase
-    .from('recipes')
-    .select('ingredients, instructions, prep_time')
-    .ilike('name', mealName)
-    .maybeSingle()
-  if (recipe?.ingredients?.length) {
-    const instructions = recipe.instructions
-      ? (recipe.instructions as string).split('\n').filter(Boolean)
-      : await fetchInstructions(mealName)
-    const result = {
-      cooking_time_minutes: (recipe.prep_time as number) || 30,
-      calories_per_serving: 0,
-      ingredients: recipe.ingredients as string[],
-      instructions,
-    }
-    // Back-fill so future opens are instant
-    if (mealPlanId) {
-      await supabase.from('meal_plans').update({
-        cooking_time_minutes: result.cooking_time_minutes,
-        ingredients: result.ingredients,
-        instructions: instructions.length ? instructions : null,
-      }).eq('id', mealPlanId)
-    }
-    return NextResponse.json(result)
   }
 
   // 3. Fall back to AI generation
