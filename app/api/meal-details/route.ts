@@ -7,33 +7,33 @@ export async function POST(request: Request) {
 
   const supabase = await createClient()
 
-  // 1. Check meal_plans cache — if ingredients are already stored, use them.
-  //    Instructions are also stored for recipes added from the recipe book.
+  // 1. Check meal_plans cache — ingredients being present is enough to skip AI.
+  //    (calories_per_serving may be null for manually-created recipes, that's fine)
   if (mealPlanId) {
     const { data: cached } = await supabase
       .from('meal_plans')
       .select('cooking_time_minutes, calories_per_serving, ingredients, instructions')
       .eq('id', mealPlanId)
       .single()
-    if (cached?.cooking_time_minutes && cached?.calories_per_serving && cached?.ingredients?.length) {
+    if (cached?.ingredients?.length) {
       const instructions = (cached.instructions as string[] | null)?.length
         ? cached.instructions as string[]
         : await fetchInstructions(mealName)
       return NextResponse.json({
-        cooking_time_minutes: cached.cooking_time_minutes,
-        calories_per_serving: cached.calories_per_serving,
+        cooking_time_minutes: cached.cooking_time_minutes || 30,
+        calories_per_serving: cached.calories_per_serving || 0,
         ingredients: cached.ingredients,
         instructions,
       })
     }
   }
 
-  // 2. Look up the user's recipe book by name — handles meals that were added to
-  //    the plan before ingredients were being cached, so we never call AI for
-  //    a recipe the user created themselves.
+  // 2. Look up the user's recipe book by name — catches meals added to the plan
+  //    before caching was in place, or when calories weren't stored.
+  //    Note: recipes table has no calories_per_serving column, so we don't select it.
   const { data: recipe } = await supabase
     .from('recipes')
-    .select('ingredients, instructions, prep_time, calories_per_serving')
+    .select('ingredients, instructions, prep_time')
     .ilike('name', mealName)
     .maybeSingle()
   if (recipe?.ingredients?.length) {
@@ -41,12 +41,12 @@ export async function POST(request: Request) {
       ? (recipe.instructions as string).split('\n').filter(Boolean)
       : await fetchInstructions(mealName)
     const result = {
-      cooking_time_minutes: recipe.prep_time || 30,
-      calories_per_serving: (recipe as Record<string, unknown>).calories_per_serving as number || 0,
+      cooking_time_minutes: (recipe.prep_time as number) || 30,
+      calories_per_serving: 0,
       ingredients: recipe.ingredients as string[],
       instructions,
     }
-    // Back-fill the meal_plans row so future opens skip this lookup too
+    // Back-fill so future opens are instant
     if (mealPlanId) {
       await supabase.from('meal_plans').update({
         cooking_time_minutes: result.cooking_time_minutes,
