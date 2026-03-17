@@ -7,9 +7,8 @@ export async function POST(request: Request) {
 
   const supabase = await createClient()
 
-  // Return cached data if we already have it.
-  // If the recipe came from the user's recipe book it will have ingredients AND instructions
-  // stored — in that case skip AI entirely so manual recipes are never overwritten.
+  // 1. Check meal_plans cache — if ingredients are already stored, use them.
+  //    Instructions are also stored for recipes added from the recipe book.
   if (mealPlanId) {
     const { data: cached } = await supabase
       .from('meal_plans')
@@ -17,7 +16,6 @@ export async function POST(request: Request) {
       .eq('id', mealPlanId)
       .single()
     if (cached?.cooking_time_minutes && cached?.calories_per_serving && cached?.ingredients?.length) {
-      // Use stored instructions if available (manual/imported recipe), otherwise generate them
       const instructions = (cached.instructions as string[] | null)?.length
         ? cached.instructions as string[]
         : await fetchInstructions(mealName)
@@ -30,6 +28,36 @@ export async function POST(request: Request) {
     }
   }
 
+  // 2. Look up the user's recipe book by name — handles meals that were added to
+  //    the plan before ingredients were being cached, so we never call AI for
+  //    a recipe the user created themselves.
+  const { data: recipe } = await supabase
+    .from('recipes')
+    .select('ingredients, instructions, prep_time, calories_per_serving')
+    .ilike('name', mealName)
+    .maybeSingle()
+  if (recipe?.ingredients?.length) {
+    const instructions = recipe.instructions
+      ? (recipe.instructions as string).split('\n').filter(Boolean)
+      : await fetchInstructions(mealName)
+    const result = {
+      cooking_time_minutes: recipe.prep_time || 30,
+      calories_per_serving: (recipe as Record<string, unknown>).calories_per_serving as number || 0,
+      ingredients: recipe.ingredients as string[],
+      instructions,
+    }
+    // Back-fill the meal_plans row so future opens skip this lookup too
+    if (mealPlanId) {
+      await supabase.from('meal_plans').update({
+        cooking_time_minutes: result.cooking_time_minutes,
+        ingredients: result.ingredients,
+        instructions: instructions.length ? instructions : null,
+      }).eq('id', mealPlanId)
+    }
+    return NextResponse.json(result)
+  }
+
+  // 3. Fall back to AI generation
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
