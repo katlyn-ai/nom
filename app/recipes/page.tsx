@@ -67,6 +67,8 @@ export default function RecipesPage() {
   const [addingRecipe, setAddingRecipe] = useState<Recipe | null>(null)
   const [addingDay, setAddingDay] = useState<number | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -98,10 +100,15 @@ export default function RecipesPage() {
     load()
   }, [])
 
+  const closeAdd = () => {
+    setShowAdd(false)
+    setEditingRecipe(null)
+    setForm({ name: '', description: '', ingredients: '', instructions: '', servings: 4, prep_time: 30, tags: '', image_url: '' })
+  }
+
   const handleSave = async () => {
     if (!userId || !form.name) return
-    const { data } = await supabase.from('recipes').insert({
-      user_id: userId,
+    const payload = {
       name: form.name,
       description: form.description,
       ingredients: form.ingredients.split('\n').filter(Boolean),
@@ -110,12 +117,25 @@ export default function RecipesPage() {
       prep_time: form.prep_time,
       tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
       image_url: form.image_url.trim() || null,
-    }).select().single()
-    if (data) {
-      setRecipes(prev => [...prev, data])
-      setForm({ name: '', description: '', ingredients: '', instructions: '', servings: 4, prep_time: 30, tags: '', image_url: '' })
-      setShowAdd(false)
     }
+    if (editingRecipe) {
+      const { data } = await supabase.from('recipes').update(payload).eq('id', editingRecipe.id).select().single()
+      if (data) {
+        setRecipes(prev => prev.map(r => r.id === data.id ? data : r))
+        if (selected?.id === data.id) setSelected(data)
+      }
+    } else {
+      const { data } = await supabase.from('recipes').insert({ user_id: userId, ...payload }).select().single()
+      if (data) setRecipes(prev => [...prev, data])
+    }
+    closeAdd()
+  }
+
+  const handleDelete = async (id: string) => {
+    await supabase.from('recipes').delete().eq('id', id)
+    setRecipes(prev => prev.filter(r => r.id !== id))
+    setSelected(null)
+    setDeletingId(null)
   }
 
   const handleRate = async (id: string, rating: number) => {
@@ -132,11 +152,15 @@ export default function RecipesPage() {
       m => m.day_index === dayIndex && m.meal_type === primaryMealType
     )
 
-    // Carry the recipe's real ingredients and prep time into meal_plans so the
-    // dashboard doesn't call Claude to re-invent them from just the meal name
+    // Carry the recipe's real ingredients, instructions and prep time into meal_plans
+    // so the dashboard never needs to call AI to re-invent them from just the meal name
+    const recipeInstructions = recipe.instructions
+      ? recipe.instructions.split('\n').filter(Boolean)
+      : null
     const mealPayload = {
       custom_name: recipe.name,
       ingredients: recipe.ingredients?.length ? recipe.ingredients : null,
+      instructions: recipeInstructions?.length ? recipeInstructions : null,
       cooking_time_minutes: recipe.prep_time || null,
     }
 
@@ -476,6 +500,58 @@ export default function RecipesPage() {
                     <p className="text-sm whitespace-pre-wrap" style={{ color: 'var(--muted)' }}>{selected.instructions}</p>
                   </div>
                 )}
+
+                {/* Edit / Delete actions */}
+                <div className="flex gap-2 mt-6 pt-5" style={{ borderTop: '1px solid var(--border)' }}>
+                  <button
+                    onClick={() => {
+                      setForm({
+                        name: selected.name,
+                        description: selected.description || '',
+                        ingredients: selected.ingredients?.join('\n') || '',
+                        instructions: selected.instructions || '',
+                        servings: selected.servings || 4,
+                        prep_time: selected.prep_time || 30,
+                        tags: selected.tags?.join(', ') || '',
+                        image_url: selected.image_url || '',
+                      })
+                      setEditingRecipe(selected)
+                      setSelected(null)
+                      setShowAdd(true)
+                    }}
+                    className="flex-1 py-2.5 rounded-xl text-sm font-medium"
+                    style={{ background: 'var(--background)', border: '1px solid var(--border)', color: 'var(--foreground)' }}
+                  >
+                    ✏️ Edit recipe
+                  </button>
+
+                  {deletingId === selected.id ? (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleDelete(selected.id)}
+                        className="px-4 py-2.5 rounded-xl text-sm font-medium text-white"
+                        style={{ background: '#ef4444' }}
+                      >
+                        Confirm delete
+                      </button>
+                      <button
+                        onClick={() => setDeletingId(null)}
+                        className="px-4 py-2.5 rounded-xl text-sm font-medium"
+                        style={{ background: 'var(--border)', color: 'var(--muted)' }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setDeletingId(selected.id)}
+                      className="px-4 py-2.5 rounded-xl text-sm font-medium"
+                      style={{ background: '#fee2e2', color: '#ef4444' }}
+                    >
+                      🗑 Delete
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -693,14 +769,16 @@ export default function RecipesPage() {
           <div
             className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4"
             style={{ background: 'rgba(0,0,0,0.4)' }}
-            onClick={() => setShowAdd(false)}
+            onClick={closeAdd}
           >
             <div
               className="w-full max-w-lg rounded-2xl p-6 max-h-[90vh] overflow-y-auto"
               style={{ background: 'var(--card)' }}
               onClick={e => e.stopPropagation()}
             >
-              <h2 className="text-xl font-semibold mb-5" style={{ color: 'var(--foreground)' }}>Add recipe</h2>
+              <h2 className="text-xl font-semibold mb-5" style={{ color: 'var(--foreground)' }}>
+                {editingRecipe ? 'Edit recipe' : 'Add recipe'}
+              </h2>
               <div className="space-y-4">
                 {[
                   { label: 'Recipe name', key: 'name', placeholder: 'e.g. Spaghetti Carbonara' },
@@ -811,10 +889,10 @@ export default function RecipesPage() {
                     className="flex-1 py-3 rounded-xl text-white text-sm font-medium"
                     style={{ background: 'var(--primary)' }}
                   >
-                    Save recipe
+                    {editingRecipe ? 'Save changes' : 'Save recipe'}
                   </button>
                   <button
-                    onClick={() => setShowAdd(false)}
+                    onClick={closeAdd}
                     className="px-5 py-3 rounded-xl text-sm font-medium"
                     style={{ background: 'var(--border)', color: 'var(--muted)' }}
                   >

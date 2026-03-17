@@ -7,16 +7,20 @@ export async function POST(request: Request) {
 
   const supabase = await createClient()
 
-  // Return cached data if we already have it (instructions not cached in DB, re-fetched each session)
+  // Return cached data if we already have it.
+  // If the recipe came from the user's recipe book it will have ingredients AND instructions
+  // stored — in that case skip AI entirely so manual recipes are never overwritten.
   if (mealPlanId) {
     const { data: cached } = await supabase
       .from('meal_plans')
-      .select('cooking_time_minutes, calories_per_serving, ingredients')
+      .select('cooking_time_minutes, calories_per_serving, ingredients, instructions')
       .eq('id', mealPlanId)
       .single()
     if (cached?.cooking_time_minutes && cached?.calories_per_serving && cached?.ingredients?.length) {
-      // Still need to fetch instructions — call AI with just instructions
-      const instructions = await fetchInstructions(mealName)
+      // Use stored instructions if available (manual/imported recipe), otherwise generate them
+      const instructions = (cached.instructions as string[] | null)?.length
+        ? cached.instructions as string[]
+        : await fetchInstructions(mealName)
       return NextResponse.json({
         cooking_time_minutes: cached.cooking_time_minutes,
         calories_per_serving: cached.calories_per_serving,
