@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 
 type Settings = {
@@ -54,6 +55,13 @@ export default function SettingsPage() {
   const [calendarConnected, setCalendarConnected] = useState(false)
   const brandInputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
+  const router = useRouter()
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut()
+    router.push('/auth/login')
+    router.refresh()
+  }
 
   useEffect(() => {
     const load = async () => {
@@ -374,6 +382,15 @@ export default function SettingsPage() {
             style={{ background: saved ? '#4A7C59' : 'var(--gradient-primary)', boxShadow: 'var(--shadow-md)' }}
           >
             {saved ? '✓ Saved!' : 'Save settings'}
+          </button>
+
+          {/* Sign out — always visible, especially useful on mobile where the sidebar isn't shown */}
+          <button
+            onClick={handleSignOut}
+            className="w-full py-3.5 rounded-2xl text-sm font-medium"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--muted)' }}
+          >
+            Sign out
           </button>
         </div>
       </main>
