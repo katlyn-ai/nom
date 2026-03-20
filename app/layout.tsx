@@ -16,6 +16,13 @@ const playfair = Playfair_Display({
 export const metadata: Metadata = {
   title: "NOM — Meal Planning, Simplified",
   description: "AI-powered meal planning, recipe management, and smart grocery shopping.",
+  manifest: "/manifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "NOM",
+  },
+  themeColor: "#2D5438",
 };
 
 export default function RootLayout({
