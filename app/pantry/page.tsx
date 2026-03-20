@@ -189,8 +189,22 @@ export default function PantryPage() {
     </div>
   )
 
-  const ItemRow = ({ item, i, showCheckmark }: { item: PantryItem; i: number; showCheckmark: boolean }) => {
+  const ItemRow = ({ item, i, showCheckmark, onQuantityChange }: {
+    item: PantryItem; i: number; showCheckmark: boolean
+    onQuantityChange: (id: string, qty: string | null) => void
+  }) => {
     const [hovered, setHovered] = useState(false)
+    const [editingQty, setEditingQty] = useState(false)
+    const [qtyDraft, setQtyDraft] = useState(item.quantity ?? '')
+
+    const saveQty = async () => {
+      const trimmed = qtyDraft.trim() || null
+      setEditingQty(false)
+      if (trimmed === (item.quantity ?? null)) return // no change
+      await supabase.from('pantry_items').update({ quantity: trimmed }).eq('id', item.id)
+      onQuantityChange(item.id, trimmed)
+    }
+
     return (
       <div
         key={item.id}
@@ -224,14 +238,48 @@ export default function PantryPage() {
           }}
         >
           <span className="truncate">{item.name}</span>
-          {item.quantity && !showCheckmark && (
-            <span
-              className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
-              style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
-            >
-              {item.quantity}
-            </span>
+
+          {/* Quantity — tap to edit */}
+          {!showCheckmark && (
+            editingQty ? (
+              <input
+                autoFocus
+                value={qtyDraft}
+                onChange={e => setQtyDraft(e.target.value)}
+                onBlur={saveQty}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') saveQty()
+                  if (e.key === 'Escape') { setQtyDraft(item.quantity ?? ''); setEditingQty(false) }
+                }}
+                placeholder="e.g. 500g"
+                className="text-xs px-2 py-0.5 rounded-full outline-none w-24 flex-shrink-0"
+                style={{ background: 'var(--primary-light)', color: 'var(--primary)', border: '1.5px solid var(--primary)' }}
+              />
+            ) : item.quantity ? (
+              <button
+                onClick={() => { setQtyDraft(item.quantity ?? ''); setEditingQty(true) }}
+                title="Edit amount"
+                className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 hover:opacity-75 transition-opacity"
+                style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+              >
+                {item.quantity}
+              </button>
+            ) : (
+              <button
+                onClick={() => { setQtyDraft(''); setEditingQty(true) }}
+                title="Add amount"
+                className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 transition-opacity"
+                style={{
+                  background: 'var(--border)',
+                  color: 'var(--muted)',
+                  opacity: hovered ? 0.8 : 0,
+                }}
+              >
+                + amount
+              </button>
+            )
           )}
+
           {item.expires_at && !showCheckmark && (() => {
             const status = expiryStatus(item.expires_at)
             const s = EXPIRY_STYLES[status]
@@ -420,7 +468,7 @@ export default function PantryPage() {
               <div key={cat}>
                 <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>{cat}</p>
                 <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                  {catItems.map((item, i) => <ItemRow key={item.id} item={item} i={i} showCheckmark={false} />)}
+                  {catItems.map((item, i) => <ItemRow key={item.id} item={item} i={i} showCheckmark={false} onQuantityChange={(id, qty) => setItems(prev => prev.map(p => p.id === id ? { ...p, quantity: qty } : p))} />)}
                 </div>
               </div>
             ))}
@@ -429,7 +477,7 @@ export default function PantryPage() {
               <div>
                 <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>Run out</p>
                 <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                  {outOfStock.map((item, i) => <ItemRow key={item.id} item={item} i={i} showCheckmark={true} />)}
+                  {outOfStock.map((item, i) => <ItemRow key={item.id} item={item} i={i} showCheckmark={true} onQuantityChange={(id, qty) => setItems(prev => prev.map(p => p.id === id ? { ...p, quantity: qty } : p))} />)}
                 </div>
               </div>
             )}
