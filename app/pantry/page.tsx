@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Nav from '@/components/nav'
-import { PackageIcon, PlusIcon, XIcon, SparklesIcon } from '@/components/icons'
+import { PackageIcon, PlusIcon, XIcon } from '@/components/icons'
 
 type PantryItem = {
   id: string
@@ -44,13 +44,10 @@ export default function PantryPage() {
   const [newItem, setNewItem] = useState('')
   const [newQuantity, setNewQuantity] = useState('')
   const [newExpiry, setNewExpiry] = useState('')
-  const [category, setCategory] = useState('Other')
   const [outPrompt, setOutPrompt] = useState<{ id: string; name: string } | null>(null)
   const [addingToCart, setAddingToCart] = useState(false)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
-  const [categorising, setCategorising] = useState(false)
-  const [categoriseToast, setCategoriseToast] = useState<string | null>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -78,10 +75,11 @@ export default function PantryPage() {
       setAdding(false)
       return
     }
+    const name = newItem.trim()
     const { data, error } = await supabase.from('pantry_items').insert({
       user_id: user.id,
-      name: newItem.trim(),
-      category,
+      name,
+      category: 'Other', // will be updated by auto-categorise below
       in_stock: true,
       quantity: newQuantity.trim() || null,
       expires_at: newExpiry || null,
@@ -93,6 +91,19 @@ export default function PantryPage() {
       setNewItem('')
       setNewQuantity('')
       setNewExpiry('')
+
+      // Auto-categorise in the background — update once AI responds
+      fetch('/api/categorise-shopping', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ items: [name] }),
+      }).then(r => r.json()).then(json => {
+        const category: string = json.categorised?.[0] ?? 'Other'
+        if (category !== 'Other') {
+          supabase.from('pantry_items').update({ category }).eq('id', data.id)
+          setItems(prev => prev.map(i => i.id === data.id ? { ...i, category } : i))
+        }
+      }).catch(() => {/* silent — item stays in Other */})
     }
     setAdding(false)
   }
@@ -129,39 +140,6 @@ export default function PantryPage() {
     })
     setAddingToCart(false)
     setOutPrompt(null)
-  }
-
-  const handleAutoCategorise = async () => {
-    setCategorising(true)
-    setCategoriseToast(null)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setCategorising(false); return }
-
-    try {
-      const res = await fetch('/api/categorise-pantry', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user.id }),
-      })
-      const data = await res.json()
-      if (data.error) {
-        setCategoriseToast(`Error: ${data.error} — try again`)
-      } else if (data.categorised?.length) {
-        // Apply new categories to local state
-        setItems(prev => prev.map(item => {
-          const match = data.categorised.find((c: { id: string; category: string }) => c.id === item.id)
-          return match ? { ...item, category: match.category } : item
-        }))
-        setCategoriseToast(`✓ Organised ${data.updated} item${data.updated !== 1 ? 's' : ''} into categories`)
-      } else {
-        setCategoriseToast('All items are already organised')
-      }
-    } catch {
-      setCategoriseToast('Could not organise — try again')
-    }
-
-    setCategorising(false)
-    setTimeout(() => setCategoriseToast(null), 3000)
   }
 
   const inStock = items.filter(i => i.in_stock)
@@ -309,40 +287,12 @@ export default function PantryPage() {
       <Nav />
       <main className="md:ml-64 px-6 py-8 pb-24 md:pb-8 max-w-2xl">
 
-        <div className="mb-6 flex items-start justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Pantry</h1>
-            <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-              {inStock.length} items in stock · {outOfStock.length} run out
-            </p>
-          </div>
-          {items.length > 0 && (
-            <button
-              onClick={handleAutoCategorise}
-              disabled={categorising}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all disabled:opacity-60 flex-shrink-0"
-              style={{
-                background: 'var(--card)',
-                color: 'var(--muted)',
-                border: '1px solid var(--border)',
-                boxShadow: 'var(--shadow-sm)',
-              }}
-            >
-              <SparklesIcon size={14} />
-              {categorising ? 'Organising…' : 'Auto-organise'}
-            </button>
-          )}
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Pantry</h1>
+          <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
+            {inStock.length} items in stock · {outOfStock.length} run out
+          </p>
         </div>
-
-        {/* Categorise toast */}
-        {categoriseToast && (
-          <div
-            className="rounded-xl px-4 py-3 mb-4 text-sm font-medium"
-            style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
-          >
-            {categoriseToast}
-          </div>
-        )}
 
         {/* Expiry warning banner */}
         {expiringSoon.length > 0 && (
@@ -366,6 +316,7 @@ export default function PantryPage() {
               onChange={e => setNewItem(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && newItem.trim()) addItem() }}
               placeholder="Add item to pantry…"
+              spellCheck={true}
               className="flex-1 px-4 py-2.5 rounded-xl border text-sm outline-none"
               style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
             />
@@ -404,25 +355,10 @@ export default function PantryPage() {
             </div>
           )}
           {addError && (
-            <p className="text-xs mb-2 px-1" style={{ color: 'red' }}>
+            <p className="text-xs px-1" style={{ color: 'red' }}>
               Error: {addError}
             </p>
           )}
-          <div className="flex gap-2 flex-wrap">
-            {CATEGORIES.map(cat => (
-              <button
-                key={cat}
-                onClick={() => setCategory(cat)}
-                className="text-xs px-2.5 py-1 rounded-full font-medium"
-                style={{
-                  background: category === cat ? 'var(--primary)' : 'var(--border)',
-                  color: category === cat ? 'white' : 'var(--muted)',
-                }}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* "Ran out" prompt banner */}
