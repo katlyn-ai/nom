@@ -293,19 +293,20 @@ export default function ShoppingPage() {
   const buildListText = () =>
     items.filter(i => !i.checked).map(i => `- ${i.name}${i.quantity ? ` (${i.quantity})` : ''}`).join('\n')
 
-  const buildCartPrompt = (store: typeof STORES[number]) => {
+  const buildClaudePrompt = (storeName?: string) => {
     const list = buildListText()
-    return `Please add these items to my ${store.name} cart:\n${list}\n\nIf I'm not logged in yet, please wait for me to log in first, then add each item to my cart one by one.`
+    const storeRef = storeName ? `my ${storeName} cart` : 'my cart on this website'
+    return `Please add these items to ${storeRef}, one by one:\n\n${list}\n\nIf I'm not logged in yet, please wait for me to log in first. For each item, search for it, pick the most suitable option, and add it to the cart. If something isn't available, skip it and let me know at the end.`
   }
 
   const copyList = () => {
-    navigator.clipboard.writeText(buildListText())
+    navigator.clipboard.writeText(buildClaudePrompt())
     setListCopied(true)
     setTimeout(() => setListCopied(false), 2500)
   }
 
   const copyPrompt = (store: typeof STORES[number]) => {
-    navigator.clipboard.writeText(buildCartPrompt(store))
+    navigator.clipboard.writeText(buildClaudePrompt(store.name))
     setPromptCopied(true)
     setTimeout(() => setPromptCopied(false), 2500)
   }
@@ -621,7 +622,7 @@ export default function ShoppingPage() {
                         border: `1.5px solid ${listCopied ? 'var(--primary)' : 'var(--border)'}`,
                       }}
                     >
-                      {listCopied ? '✓ List copied!' : '📋 Copy list as text'}
+                      {listCopied ? '✓ Prompt copied!' : '✨ Copy Claude prompt for auto-cart'}
                     </button>
 
                     {/* Store selection */}
@@ -720,7 +721,7 @@ export default function ShoppingPage() {
                           className="rounded-xl p-3 mb-3 text-xs font-mono leading-relaxed"
                           style={{ background: 'var(--card)', color: 'var(--foreground)', border: '1px solid var(--border)', whiteSpace: 'pre-wrap' }}
                         >
-                          {buildCartPrompt(selectedStore)}
+                          {buildClaudePrompt(selectedStore.name)}
                         </div>
                         <button
                           onClick={() => copyPrompt(selectedStore)}
@@ -764,7 +765,7 @@ export default function ShoppingPage() {
                           border: `1px solid ${listCopied ? 'var(--primary)' : 'var(--border)'}`,
                         }}
                       >
-                        {listCopied ? '✓ Copied!' : '📋 Copy list'}
+                        {listCopied ? '✓ Copied!' : '✨ Copy prompt'}
                       </button>
                       <button
                         onClick={() => window.open(selectedStore.url, '_blank')}
