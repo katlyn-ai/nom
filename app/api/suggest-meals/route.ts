@@ -36,18 +36,25 @@ export async function POST(request: Request) {
 
   const alreadyPlanned: string[] = Array.isArray(existingMeals) ? existingMeals.filter(Boolean) : []
 
+  // Favourite recipes used only as "things they enjoy eating" context — not to bias cuisine direction
+  const favouriteNames = recipes?.filter(r => (r.rating ?? 0) >= 4).map(r => r.name) ?? []
+
   const context = [
     settings ? `Household: ${settings.household_size} people` : '',
     settings?.dietary_preferences?.length ? `Household dietary preferences: ${settings.dietary_preferences.join(', ')}` : '',
     settings?.vegetarian_meals_per_week ? `At least ${settings.vegetarian_meals_per_week} meals this week should be vegetarian` : '',
     settings?.snacks ? `Typical snacks: ${settings.snacks}` : '',
     peopleContext ? `Household members:\n${peopleContext}` : '',
-    recipes?.length ? `Favourite recipes: ${recipes.filter(r => r.rating >= 4).map(r => r.name).join(', ')}` : '',
-    pantryNames.length
-      ? `Pantry items (may be in Estonian, Russian, Finnish or English — prioritise meals that use these up): ${pantryNames.join(', ')}`
+    // Only mention pantry when the user has explicitly turned on the pantry filter
+    activeFilters.usePantry && pantryNames.length
+      ? `Pantry items available (prioritise using these): ${pantryNames.join(', ')}`
+      : '',
+    // Favourites: avoid repeating them too often — suggest something fresh
+    favouriteNames.length
+      ? `Meals this household already knows and likes (avoid repeating these exact dishes, but similar style is fine): ${favouriteNames.slice(0, 10).join(', ')}`
       : '',
     alreadyPlanned.length
-      ? `ALREADY PLANNED this week (DO NOT suggest these or anything similar — avoid same main ingredient, same cuisine, or same cooking style): ${alreadyPlanned.join(', ')}`
+      ? `ALREADY PLANNED this week — DO NOT repeat or closely resemble these: ${alreadyPlanned.join(', ')}`
       : '',
   ].filter(Boolean).join('\n')
 
@@ -62,30 +69,33 @@ export async function POST(request: Request) {
   if (activeFilters.maxTime) {
     filterLines.push(`COOKING TIME CONSTRAINT: Every meal MUST be achievable in under ${activeFilters.maxTime} minutes.`)
   }
-  if (activeFilters.usePantry && pantryNames.length) {
-    filterLines.push(`PANTRY PRIORITY: Try to incorporate pantry items into as many meals as possible: ${pantryNames.join(', ')}.`)
-  }
   const filterConstraints = filterLines.length ? `\nUSER CONSTRAINTS — HARD REQUIREMENTS, override all other rules:\n${filterLines.join('\n')}` : ''
 
   const mealTypeList = activeMealTypes.join(', ')
 
-  const systemPrompt = `You are a creative meal planning assistant for NOM. Suggest ${suggestionCount} diverse, delicious options for EACH of these meal types: ${mealTypeList}.
+  const systemPrompt = `You are a creative, globally-minded meal planning assistant for NOM. Suggest ${suggestionCount} diverse, delicious options for EACH of these meal types: ${mealTypeList}.
 
-RULES FOR ALL MEAL TYPES:
+GLOBAL DIVERSITY RULES (apply across ALL meal types combined):
+- Treat the full list of suggestions across all meal types as ONE pool. No cuisine, flavour base, or primary seasoning (e.g. miso, gochujang, coconut curry, tomato cream) may appear more than ONCE across the entire pool.
+- Cover at least 5 different world regions across all suggestions (e.g. Mediterranean, East Asian, South Asian, Latin American, Middle Eastern, European, African, etc.)
+- Do not be biased by what may be in the user's pantry — suggest freely from all world cuisines
+
+NAMING RULES:
 - Names must be specific and appetising (e.g. "Lemon Ricotta Pancakes with Blueberry Compote" not "Pancakes")
-- No repetition within or across meal types
-- Match the meal type appropriately — breakfast ideas should be breakfast-appropriate, snacks should be light, etc.
+- No two suggestions across any meal type may share the same main protein + sauce combination
 
-DINNER DIVERSITY RULES (apply only to dinner):
-1. No two meals from the same cuisine
-2. Vary the protein: fish/seafood, poultry, red meat, plant-based
-3. Vary the cooking style: soup/stew, salad/light, baked/roasted, stir-fry/skillet
-4. Vary the carb: rice, pasta, potatoes, grains, no-carb
-5. At least one lesser-known or adventurous dish
+DINNER DIVERSITY (7 suggestions must cover all of these):
+1. Each from a different world cuisine
+2. Proteins: include fish/seafood, poultry, red meat, AND plant-based — at least one each
+3. Cooking styles: include soup/stew, something baked/roasted, something stir-fried, something light
+4. Carbs: include rice, pasta or noodles, potatoes or grains, AND one no-carb option
+5. At least 2 suggestions must be dishes the user is unlikely to have made before
 
-LUNCH DIVERSITY RULES (apply only to lunch):
-1. Vary between warm and cold options
-2. Mix light (salads, soups) and more substantial (wraps, grain bowls) options
+LUNCH DIVERSITY (7 suggestions must cover all of these):
+1. Each from a different world cuisine
+2. Mix warm and cold options (at least 2 of each)
+3. Mix light (soups, salads) and more filling (wraps, bowls, sandwiches)
+4. Vary the protein across suggestions
 ${filterConstraints}
 
 Household context:
