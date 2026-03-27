@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: Request) {
-  const { prompt, userId, filters, existingMeals } = await request.json()
+  const { prompt, userId, filters, existingMeals, previousSuggestions } = await request.json()
   const activeFilters: { cuisines?: string[]; proteins?: string[]; maxTime?: number | null; usePantry?: boolean } = filters || {}
 
   const supabase = await createClient()
@@ -35,6 +35,7 @@ export async function POST(request: Request) {
   const pantryNames = (pantry || []).map(p => p.name).filter(Boolean)
 
   const alreadyPlanned: string[] = Array.isArray(existingMeals) ? existingMeals.filter(Boolean) : []
+  const prevSuggested: string[] = Array.isArray(previousSuggestions) ? previousSuggestions.filter(Boolean) : []
 
   // Favourite recipes used only as "things they enjoy eating" context — not to bias cuisine direction
   const favouriteNames = recipes?.filter(r => (r.rating ?? 0) >= 4).map(r => r.name) ?? []
@@ -55,6 +56,9 @@ export async function POST(request: Request) {
       : '',
     alreadyPlanned.length
       ? `ALREADY PLANNED this week — DO NOT repeat or closely resemble these: ${alreadyPlanned.join(', ')}`
+      : '',
+    prevSuggested.length
+      ? `PREVIOUSLY SUGGESTED (user has already seen these — DO NOT suggest them again, not even a variation with different vegetables or a slightly different name): ${prevSuggested.join(', ')}`
       : '',
   ].filter(Boolean).join('\n')
 
@@ -90,6 +94,7 @@ VARIETY RULES:
 - It is fine to include Asian-inspired dishes, Mediterranean, or classic Estonian/European food — just keep ingredients realistic
 - Names must be specific and appetising (e.g. "Creamy Bacon Pasta with Spinach" not just "Pasta")
 - Do not repeat a protein + sauce combination across lunch and dinner in the same batch
+- If a PREVIOUSLY SUGGESTED list is provided in the context, every meal on it is completely off-limits — no variations, no renamed versions, no "similar style"
 ${filterConstraints}
 
 Household context:

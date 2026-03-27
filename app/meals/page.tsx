@@ -76,6 +76,8 @@ export default function MealsPage() {
   const [recipesLoaded, setRecipesLoaded] = useState(false)
   // Save to recipes
   const [savedMealKeys, setSavedMealKeys] = useState<Set<string>>(new Set())
+  // Track every meal name previously shown in suggestions so regenerations avoid them
+  const [previousSuggestions, setPreviousSuggestions] = useState<string[]>([])
   const supabase = createClient()
 
   const slotKey = (dayIndex: number, mealType: string) => `${dayIndex}-${mealType}`
@@ -214,6 +216,7 @@ export default function MealsPage() {
           prompt,
           userId: user.id,
           existingMeals: existingMealNames,
+          previousSuggestions,
           filters: {
             cuisines: filters.cuisines,
             proteins: filters.proteins,
@@ -235,6 +238,9 @@ export default function MealsPage() {
         : buildFallback()
 
       setSuggestions(suggested)
+      // Accumulate all shown suggestions so future regenerations pick different meals
+      const newNames = Object.values(suggested).flat().filter(Boolean)
+      setPreviousSuggestions(prev => [...new Set([...prev, ...newNames])])
     } catch (err) {
       console.error('Generate error:', err)
       setSuggestions(buildFallback())

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
@@ -113,6 +113,70 @@ type MealDetails = {
   loading?: boolean
 }
 
+// ── Weekly checklist ─────────────────────────────────────────────────────────
+const CHECKLIST_STEPS = [
+  { key: 'pantry',   label: 'Check pantry',       href: '/pantry',   emoji: '🥫' },
+  { key: 'meals',    label: 'Create meals',        href: '/meals',    emoji: '🍽️' },
+  { key: 'shopping', label: 'Check shopping list', href: '/shopping', emoji: '🛒' },
+  { key: 'bought',   label: 'Buy food',            href: '/shopping', emoji: '🛍️' },
+]
+
+function getWeekKey() {
+  const d = new Date()
+  const jan1 = new Date(d.getFullYear(), 0, 1)
+  const week = Math.ceil(((d.getTime() - jan1.getTime()) / 86_400_000 + jan1.getDay() + 1) / 7)
+  return `nom-checklist-${d.getFullYear()}-w${week}`
+}
+
+function ConfettiOverlay({ onDone }: { onDone: () => void }) {
+  const pieces = useMemo(() =>
+    Array.from({ length: 90 }, (_, i) => ({
+      id: i,
+      color: ['#3D6B47','#F59E0B','#EF4444','#3B82F6','#8B5CF6','#EC4899','#10B981','#F97316','#FBBF24','#A3E635'][i % 10],
+      left: `${(i * 37 + 7) % 100}%`,
+      delay: `${((i * 11) % 20) / 10}s`,
+      duration: `${2.8 + (i % 6) * 0.22}s`,
+      size: `${6 + (i % 7)}px`,
+      round: i % 3 !== 0,
+      drift: (i % 2 === 0 ? 1 : -1) * (20 + (i % 40)),
+    }))
+  , [])
+
+  useEffect(() => {
+    const t = setTimeout(onDone, 5000)
+    return () => clearTimeout(t)
+  }, [onDone])
+
+  return (
+    <>
+      <style>{`
+        @keyframes cfFall {
+          0%   { opacity: 1; transform: translateY(-20px) translateX(0) rotate(0deg); }
+          100% { opacity: 0; transform: translateY(105vh) translateX(var(--drift)) rotate(800deg); }
+        }
+      `}</style>
+      <div className="fixed inset-0 pointer-events-none overflow-hidden" style={{ zIndex: 999 }}>
+        {pieces.map(p => (
+          <div
+            key={p.id}
+            style={{
+              position: 'absolute',
+              left: p.left,
+              top: '-12px',
+              width: p.size,
+              height: p.size,
+              background: p.color,
+              borderRadius: p.round ? '50%' : '3px',
+              ['--drift' as string]: `${p.drift}px`,
+              animation: `cfFall ${p.duration} ${p.delay} ease-in forwards`,
+            }}
+          />
+        ))}
+      </div>
+    </>
+  )
+}
+
 const MealTypeIcon = ({ type }: { type: string }) => {
   if (type === 'breakfast') return <SunIcon size={12} />
   if (type === 'lunch') return <CloudSunIcon size={12} />
@@ -137,6 +201,9 @@ export default function DashboardPage() {
   const [swappedIngredients, setSwappedIngredients] = useState<Record<string, string | 'loading'>>({})
   const [savedToRecipes, setSavedToRecipes] = useState(false)
   const [savingRecipe, setSavingRecipe] = useState(false)
+  // Weekly checklist
+  const [checked, setChecked] = useState<Record<string, boolean>>({})
+  const [showConfetti, setShowConfetti] = useState(false)
 
   const swapIngredient = async (original: string) => {
     if (!selectedMeal || swappedIngredients[original]) return
@@ -176,6 +243,25 @@ export default function DashboardPage() {
     }
     load()
   }, [])
+
+  // Load this week's checklist state from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(getWeekKey())
+      if (stored) setChecked(JSON.parse(stored))
+    } catch { /* ignore */ }
+  }, [])
+
+  const toggleChecked = useCallback((key: string) => {
+    setChecked(prev => {
+      const next = { ...prev, [key]: !prev[key] }
+      try { localStorage.setItem(getWeekKey(), JSON.stringify(next)) } catch { /* ignore */ }
+      if (key === 'bought' && next['bought']) setShowConfetti(true)
+      return next
+    })
+  }, [])
+
+  const handleConfettiDone = useCallback(() => setShowConfetti(false), [])
 
   const openMeal = async (meal: Meal) => {
     setSelectedMeal(meal)
@@ -342,6 +428,64 @@ export default function DashboardPage() {
           ))}
         </div>
 
+        {/* Weekly checklist */}
+        <div className="mb-6 rounded-2xl overflow-hidden" style={{ background: 'var(--card)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+          <div className="px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
+            <p className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+              This week's checklist
+            </p>
+          </div>
+          {CHECKLIST_STEPS.map((step, i) => {
+            const done = !!checked[step.key]
+            const prevAllDone = CHECKLIST_STEPS.slice(0, i).every(s => checked[s.key])
+            return (
+              <div
+                key={step.key}
+                className="flex items-center gap-3 px-4 py-3.5 transition-opacity"
+                style={{
+                  borderTop: i > 0 ? '1px solid var(--border)' : 'none',
+                  opacity: !prevAllDone && !done ? 0.45 : 1,
+                }}
+              >
+                <button
+                  onClick={() => toggleChecked(step.key)}
+                  className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all"
+                  style={{
+                    borderColor: done ? 'var(--primary)' : 'var(--border)',
+                    background: done ? 'var(--primary)' : 'transparent',
+                  }}
+                >
+                  {done && (
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  )}
+                </button>
+                <span
+                  className="text-sm flex-1"
+                  style={{
+                    color: 'var(--foreground)',
+                    textDecoration: done ? 'line-through' : 'none',
+                    opacity: done ? 0.55 : 1,
+                    transition: 'opacity 0.2s',
+                  }}
+                >
+                  {step.emoji} {step.label}
+                </span>
+                {!done && (
+                  <Link
+                    href={step.href}
+                    className="text-xs px-2.5 py-1 rounded-lg font-medium"
+                    style={{ color: 'var(--primary)', background: 'var(--primary-light)' }}
+                  >
+                    Go →
+                  </Link>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
         {/* This week */}
         <div className="mb-4 mt-3 flex items-center justify-between">
           <h2 className="text-lg font-semibold" style={{ color: 'var(--foreground)' }}>This week</h2>
@@ -407,6 +551,9 @@ export default function DashboardPage() {
           </div>
         )}
       </main>
+
+      {/* Confetti celebration */}
+      {showConfetti && <ConfettiOverlay onDone={handleConfettiDone} />}
 
       {/* Meal detail slide-out */}
       {selectedMeal && (

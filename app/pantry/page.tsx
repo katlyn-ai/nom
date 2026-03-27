@@ -180,13 +180,16 @@ export default function PantryPage() {
     </div>
   )
 
-  const ItemRow = ({ item, i, onQuantityChange }: {
+  const ItemRow = ({ item, i, onQuantityChange, onNameChange }: {
     item: PantryItem; i: number
     onQuantityChange: (id: string, qty: string | null) => void
+    onNameChange: (id: string, name: string) => void
   }) => {
     const [hovered, setHovered] = useState(false)
     const [editingQty, setEditingQty] = useState(false)
     const [qtyDraft, setQtyDraft] = useState(item.quantity ?? '')
+    const [editingName, setEditingName] = useState(false)
+    const [nameDraft, setNameDraft] = useState(item.name)
 
     const saveQty = async () => {
       const trimmed = qtyDraft.trim() || null
@@ -194,6 +197,14 @@ export default function PantryPage() {
       if (trimmed === (item.quantity ?? null)) return // no change
       await supabase.from('pantry_items').update({ quantity: trimmed }).eq('id', item.id)
       onQuantityChange(item.id, trimmed)
+    }
+
+    const saveName = async () => {
+      const trimmed = nameDraft.trim()
+      setEditingName(false)
+      if (!trimmed || trimmed === item.name) { setNameDraft(item.name); return }
+      await supabase.from('pantry_items').update({ name: trimmed }).eq('id', item.id)
+      onNameChange(item.id, trimmed)
     }
 
     return (
@@ -214,7 +225,28 @@ export default function PantryPage() {
           className="text-sm flex-1 flex items-center gap-2 min-w-0"
           style={{ color: 'var(--foreground)' }}
         >
-          <span className="truncate">{item.name}</span>
+          {editingName ? (
+            <input
+              autoFocus
+              value={nameDraft}
+              onChange={e => setNameDraft(e.target.value)}
+              onBlur={saveName}
+              onKeyDown={e => {
+                if (e.key === 'Enter') saveName()
+                if (e.key === 'Escape') { setNameDraft(item.name); setEditingName(false) }
+              }}
+              className="text-sm px-2 py-0.5 rounded-lg outline-none flex-1 min-w-0"
+              style={{ background: 'var(--background)', color: 'var(--foreground)', border: '1.5px solid var(--primary)' }}
+            />
+          ) : (
+            <span
+              className="truncate cursor-text hover:opacity-70 transition-opacity"
+              title="Click to edit name"
+              onClick={() => { setNameDraft(item.name); setEditingName(true) }}
+            >
+              {item.name}
+            </span>
+          )}
 
           {/* Quantity — tap to edit */}
           {(
@@ -374,7 +406,7 @@ export default function PantryPage() {
               <div key={cat}>
                 <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>{cat}</p>
                 <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                  {catItems.map((item, i) => <ItemRow key={item.id} item={item} i={i} onQuantityChange={(id, qty) => setItems(prev => prev.map(p => p.id === id ? { ...p, quantity: qty } : p))} />)}
+                  {catItems.map((item, i) => <ItemRow key={item.id} item={item} i={i} onQuantityChange={(id, qty) => setItems(prev => prev.map(p => p.id === id ? { ...p, quantity: qty } : p))} onNameChange={(id, name) => setItems(prev => prev.map(p => p.id === id ? { ...p, name } : p))} />)}
                 </div>
               </div>
             ))}
