@@ -108,15 +108,46 @@ export default function PantryPage() {
     setAdding(false)
   }
 
-  const markOut = async (item: PantryItem) => {
-    await supabase.from('pantry_items').update({ in_stock: false }).eq('id', item.id)
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, in_stock: false } : i))
+  const markOut = (item: PantryItem) => {
+    // Show a popup asking whether to add to shopping list, then delete
     setOutPrompt({ id: item.id, name: item.name })
   }
 
-  const markBack = async (id: string) => {
-    await supabase.from('pantry_items').update({ in_stock: true }).eq('id', id)
-    setItems(prev => prev.map(i => i.id === id ? { ...i, in_stock: true } : i))
+  const confirmMarkOut = async (addToShopping: boolean) => {
+    if (!outPrompt) return
+    setAddingToCart(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setAddingToCart(false); return }
+
+    if (addToShopping) {
+      const pantryItem = items.find(i => i.id === outPrompt.id)
+      // Auto-categorise before adding to shopping
+      let category = pantryItem?.category || 'Other'
+      try {
+        const res = await fetch('/api/categorise-shopping', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ items: [outPrompt.name] }),
+        })
+        if (res.ok) {
+          const json = await res.json()
+          if (json.categorised?.[0]) category = json.categorised[0]
+        }
+      } catch { /* use existing category */ }
+      await supabase.from('shopping_items').insert({
+        user_id: user.id,
+        name: outPrompt.name,
+        category,
+        checked: false,
+        added_by: user.id,
+      })
+    }
+
+    // Always delete the item from pantry
+    await supabase.from('pantry_items').delete().eq('id', outPrompt.id)
+    setItems(prev => prev.filter(i => i.id !== outPrompt.id))
+    setAddingToCart(false)
+    setOutPrompt(null)
   }
 
   const deleteItem = async (id: string) => {
@@ -125,25 +156,7 @@ export default function PantryPage() {
     if (outPrompt?.id === id) setOutPrompt(null)
   }
 
-  const addToShoppingList = async () => {
-    if (!outPrompt) return
-    setAddingToCart(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { setAddingToCart(false); return }
-    const pantryItem = items.find(i => i.id === outPrompt.id)
-    await supabase.from('shopping_items').insert({
-      user_id: user.id,
-      name: outPrompt.name,
-      category: pantryItem?.category || 'Other',
-      checked: false,
-      added_by: user.id,
-    })
-    setAddingToCart(false)
-    setOutPrompt(null)
-  }
-
   const inStock = items.filter(i => i.in_stock)
-  const outOfStock = items.filter(i => !i.in_stock)
 
   // Items expiring today or already expired
   const expiringSoon = inStock.filter(i => {
@@ -167,8 +180,8 @@ export default function PantryPage() {
     </div>
   )
 
-  const ItemRow = ({ item, i, showCheckmark, onQuantityChange }: {
-    item: PantryItem; i: number; showCheckmark: boolean
+  const ItemRow = ({ item, i, onQuantityChange }: {
+    item: PantryItem; i: number
     onQuantityChange: (id: string, qty: string | null) => void
   }) => {
     const [hovered, setHovered] = useState(false)
@@ -191,34 +204,20 @@ export default function PantryPage() {
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
-        {showCheckmark ? (
-          <button
-            onClick={() => markBack(item.id)}
-            title="Back in stock"
-            className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-            style={{ borderColor: 'var(--border)', background: 'var(--border)' }}
-          >
-            <span className="text-xs" style={{ color: 'var(--muted)' }}>✓</span>
-          </button>
-        ) : (
-          <button
-            onClick={() => markOut(item)}
-            title="Mark as run out"
-            className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
-            style={{ borderColor: 'var(--primary)' }}
-          />
-        )}
+        <button
+          onClick={() => markOut(item)}
+          title="Mark as run out"
+          className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+          style={{ borderColor: 'var(--primary)' }}
+        />
         <span
           className="text-sm flex-1 flex items-center gap-2 min-w-0"
-          style={{
-            color: showCheckmark ? 'var(--muted)' : 'var(--foreground)',
-            textDecoration: showCheckmark ? 'line-through' : 'none',
-          }}
+          style={{ color: 'var(--foreground)' }}
         >
           <span className="truncate">{item.name}</span>
 
           {/* Quantity — tap to edit */}
-          {!showCheckmark && (
+          {(
             editingQty ? (
               <input
                 autoFocus
@@ -258,7 +257,7 @@ export default function PantryPage() {
             )
           )}
 
-          {item.expires_at && !showCheckmark && (() => {
+          {item.expires_at && (() => {
             const status = expiryStatus(item.expires_at)
             const s = EXPIRY_STYLES[status]
             return (
@@ -290,7 +289,7 @@ export default function PantryPage() {
         <div className="mb-6">
           <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Pantry</h1>
           <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-            {inStock.length} items in stock · {outOfStock.length} run out
+            {inStock.length} items in stock
           </p>
         </div>
 
@@ -361,36 +360,7 @@ export default function PantryPage() {
           )}
         </div>
 
-        {/* "Ran out" prompt banner */}
-        {outPrompt && (
-          <div
-            className="rounded-2xl p-4 mb-5 flex items-center justify-between gap-3"
-            style={{ background: 'var(--accent)', boxShadow: 'var(--shadow-sm)' }}
-          >
-            <p className="text-sm font-medium text-white">
-              Ran out of <strong>{outPrompt.name}</strong> — add to shopping list?
-            </p>
-            <div className="flex gap-2 flex-shrink-0">
-              <button
-                onClick={addToShoppingList}
-                disabled={addingToCart}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white disabled:opacity-60"
-                style={{ color: 'var(--accent)' }}
-              >
-                {addingToCart ? 'Adding…' : 'Yes, add it'}
-              </button>
-              <button
-                onClick={() => setOutPrompt(null)}
-                className="px-3 py-1.5 rounded-xl text-xs font-medium"
-                style={{ background: 'rgba(255,255,255,0.25)', color: 'white' }}
-              >
-                No thanks
-              </button>
-            </div>
-          </div>
-        )}
-
-        {Object.keys(groupedInStock).length === 0 && outOfStock.length === 0 ? (
+        {Object.keys(groupedInStock).length === 0 ? (
           <div className="rounded-2xl p-10 text-center" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
             <div className="flex justify-center mb-3" style={{ color: 'var(--primary)' }}>
               <PackageIcon size={40} />
@@ -404,22 +374,53 @@ export default function PantryPage() {
               <div key={cat}>
                 <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>{cat}</p>
                 <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                  {catItems.map((item, i) => <ItemRow key={item.id} item={item} i={i} showCheckmark={false} onQuantityChange={(id, qty) => setItems(prev => prev.map(p => p.id === id ? { ...p, quantity: qty } : p))} />)}
+                  {catItems.map((item, i) => <ItemRow key={item.id} item={item} i={i} onQuantityChange={(id, qty) => setItems(prev => prev.map(p => p.id === id ? { ...p, quantity: qty } : p))} />)}
                 </div>
               </div>
             ))}
-
-            {outOfStock.length > 0 && (
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>Run out</p>
-                <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                  {outOfStock.map((item, i) => <ItemRow key={item.id} item={item} i={i} showCheckmark={true} onQuantityChange={(id, qty) => setItems(prev => prev.map(p => p.id === id ? { ...p, quantity: qty } : p))} />)}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </main>
+
+      {/* Ran out popup */}
+      {outPrompt && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            style={{ background: 'rgba(0,0,0,0.45)' }}
+            onClick={() => !addingToCart && setOutPrompt(null)}
+          />
+          <div
+            className="fixed inset-x-4 bottom-8 md:inset-auto md:left-1/2 md:-translate-x-1/2 md:bottom-auto md:top-1/2 md:-translate-y-1/2 z-50 rounded-3xl p-6 max-w-sm w-full"
+            style={{ background: 'var(--card)', boxShadow: 'var(--shadow-lg)' }}
+          >
+            <p className="font-semibold text-base mb-1" style={{ color: 'var(--foreground)', fontFamily: 'var(--font-display)' }}>
+              Ran out of {outPrompt.name}
+            </p>
+            <p className="text-sm mb-5" style={{ color: 'var(--muted)' }}>
+              Add it to your shopping list before removing?
+            </p>
+            <div className="flex flex-col gap-2.5">
+              <button
+                onClick={() => confirmMarkOut(true)}
+                disabled={addingToCart}
+                className="w-full py-3 rounded-2xl text-white text-sm font-semibold disabled:opacity-60"
+                style={{ background: 'var(--gradient-primary)' }}
+              >
+                {addingToCart ? 'Adding…' : '✓ Yes, add to shopping list'}
+              </button>
+              <button
+                onClick={() => confirmMarkOut(false)}
+                disabled={addingToCart}
+                className="w-full py-3 rounded-2xl text-sm font-medium disabled:opacity-60"
+                style={{ background: 'var(--background)', color: 'var(--muted)', border: '1px solid var(--border)' }}
+              >
+                No, just remove it
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

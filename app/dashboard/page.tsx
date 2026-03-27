@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Nav from '@/components/nav'
 import Link from 'next/link'
-import { SparklesIcon, ShoppingCartIcon, BookOpenIcon, CreditCardIcon, CalendarDaysIcon, SunIcon, CloudSunIcon, MoonIcon, UtensilsIcon, XIcon, ClockIcon, FlameIcon, PackageIcon, RefreshIcon, PiggyBankIcon } from '@/components/icons'
+import { SparklesIcon, ShoppingCartIcon, BookOpenIcon, CalendarDaysIcon, SunIcon, CloudSunIcon, MoonIcon, UtensilsIcon, XIcon, ClockIcon, FlameIcon, PackageIcon, RefreshIcon } from '@/components/icons'
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 
@@ -124,8 +124,6 @@ export default function DashboardPage() {
   const supabase = createClient()
 
   const [meals, setMeals] = useState<Meal[]>([])
-  const [totalSpent, setTotalSpent] = useState(0)
-  const [totalSaved, setTotalSaved] = useState(0)
   const [firstName, setFirstName] = useState('there')
   const [loading, setLoading] = useState(true)
 
@@ -137,6 +135,8 @@ export default function DashboardPage() {
   const [cartAdded, setCartAdded] = useState(false)
   // swappedIngredients: maps original ingredient → substitute
   const [swappedIngredients, setSwappedIngredients] = useState<Record<string, string | 'loading'>>({})
+  const [savedToRecipes, setSavedToRecipes] = useState(false)
+  const [savingRecipe, setSavingRecipe] = useState(false)
 
   const swapIngredient = async (original: string) => {
     if (!selectedMeal || swappedIngredients[original]) return
@@ -165,20 +165,12 @@ export default function DashboardPage() {
       const name = user.user_metadata?.full_name?.split(' ')[0] || 'there'
       setFirstName(name)
 
-      const startOfMonth = new Date()
-      startOfMonth.setDate(1)
-      startOfMonth.setHours(0, 0, 0, 0)
-
-      const [{ data: mealsData }, { data: ordersData }, { data: pantryData }, { data: savingsData }] = await Promise.all([
+      const [{ data: mealsData }, { data: pantryData }] = await Promise.all([
         supabase.from('meal_plans').select('*, recipes(name)').eq('user_id', user.id).order('day_index').limit(21),
-        supabase.from('orders').select('amount').eq('user_id', user.id).gte('created_at', startOfMonth.toISOString()),
         supabase.from('pantry_items').select('name').eq('user_id', user.id).eq('in_stock', true),
-        supabase.from('shopping_sessions').select('savings_vs_expensive').eq('user_id', user.id).gte('created_at', startOfMonth.toISOString()),
       ])
 
       setMeals(mealsData || [])
-      setTotalSpent(ordersData?.reduce((sum, o) => sum + (o.amount || 0), 0) ?? 0)
-      setTotalSaved(savingsData?.reduce((sum, s) => sum + (s.savings_vs_expensive || 0), 0) ?? 0)
       setPantryItems((pantryData || []).map(p => p.name.toLowerCase()))
       setLoading(false)
     }
@@ -213,6 +205,35 @@ export default function DashboardPage() {
     setMealDetails(null)
     setSwappedIngredients({})
     setCartAdded(false)
+    setSavedToRecipes(false)
+    setSavingRecipe(false)
+  }
+
+  const saveToRecipes = async () => {
+    if (!selectedMeal || !mealDetails || savingRecipe || savedToRecipes || mealDetails.loading) return
+    setSavingRecipe(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setSavingRecipe(false); return }
+      const name = selectedMeal.custom_name || selectedMeal.recipes?.name || 'Recipe'
+      const { data: existing } = await supabase
+        .from('recipes')
+        .select('id')
+        .ilike('name', name)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      if (!existing) {
+        await supabase.from('recipes').insert({
+          user_id: user.id,
+          name,
+          ingredients: mealDetails.ingredients,
+          instructions: mealDetails.instructions.join('\n'),
+          prep_time: mealDetails.cooking_time_minutes,
+        })
+      }
+      setSavedToRecipes(true)
+    } catch { /* silent */ }
+    setSavingRecipe(false)
   }
 
   const addMissingToCart = async () => {
@@ -302,8 +323,8 @@ export default function DashboardPage() {
         {/* Stats */}
         <div className="grid grid-cols-2 gap-4 mb-4">
           {[
-            { icon: <CreditCardIcon size={18} />, label: 'Spent this month', value: `€${totalSpent.toFixed(2)}`, color: 'var(--primary)' },
             { icon: <CalendarDaysIcon size={18} />, label: 'Meals planned', value: `${mealCount}`, color: 'var(--primary)' },
+            { icon: <PackageIcon size={18} />, label: 'Pantry items', value: `${pantryItems.length}`, color: 'var(--primary)' },
           ].map(stat => (
             <div
               key={stat.label}
@@ -320,27 +341,6 @@ export default function DashboardPage() {
             </div>
           ))}
         </div>
-
-        {/* Savings banner */}
-        {totalSaved > 0 && (
-          <div
-            className="rounded-2xl p-5 mb-4 flex items-center gap-4"
-            style={{ background: 'var(--primary-light)', border: '1px solid var(--primary)' }}
-          >
-            <div style={{ color: 'var(--primary)' }}><PiggyBankIcon size={28} /></div>
-            <div>
-              <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--primary)' }}>
-                Smart shopping savings
-              </p>
-              <p className="text-2xl font-bold" style={{ color: 'var(--primary)', fontFamily: 'var(--font-display)' }}>
-                €{totalSaved.toFixed(2)} saved this month
-              </p>
-              <p className="text-xs mt-0.5" style={{ color: 'var(--primary)' }}>
-                By choosing the cheapest store each time
-              </p>
-            </div>
-          </div>
-        )}
 
         {/* This week */}
         <div className="mb-4 mt-3 flex items-center justify-between">
@@ -594,7 +594,28 @@ export default function DashboardPage() {
             </div>
 
             {/* Footer actions */}
-            <div className="px-6 py-5" style={{ borderTop: '1px solid var(--border)' }}>
+            <div className="px-6 py-5 space-y-2.5" style={{ borderTop: '1px solid var(--border)' }}>
+              {/* Save to Recipes */}
+              {!mealDetails?.loading && (
+                <button
+                  onClick={saveToRecipes}
+                  disabled={savingRecipe || savedToRecipes}
+                  className="w-full py-2.5 rounded-2xl text-sm font-medium transition-colors disabled:opacity-60"
+                  style={{
+                    background: savedToRecipes ? 'var(--primary-light)' : 'var(--background)',
+                    color: savedToRecipes ? 'var(--primary)' : 'var(--muted)',
+                    border: `1px solid ${savedToRecipes ? 'var(--primary)' : 'var(--border)'}`,
+                  }}
+                >
+                  {savedToRecipes ? '✓ Saved to Recipes' : savingRecipe ? 'Saving…' : (
+                    <>
+                      <BookOpenIcon size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: 'middle' }} />
+                      Save to My Recipes
+                    </>
+                  )}
+                </button>
+              )}
+
               {cartAdded ? (
                 <div className="flex items-center gap-3">
                   <div

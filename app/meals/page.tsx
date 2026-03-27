@@ -47,14 +47,13 @@ type Filters = {
 type Meal = { id?: string; day_index: number; meal_type: string; custom_name: string; cooking_time_minutes?: number; calories_per_serving?: number; ingredients?: string[] }
 type CalendarEvent = { dayIndex: number; summary: string; isNightOff: boolean }
 type PlanSettings = { plan_breakfast: boolean; plan_lunch: boolean; plan_snack: boolean; plan_dinner: boolean }
-type TooltipDetails = { cooking_time_minutes: number; calories_per_serving: number; ingredients: string[]; loading?: boolean }
+type TooltipDetails = { cooking_time_minutes: number; calories_per_serving: number; ingredients: string[]; description?: string; loading?: boolean }
+type Recipe = { id: string; name: string; prep_time?: number | null; rating?: number | null }
 
 export default function MealsPage() {
   const [meals, setMeals] = useState<Meal[]>([])
   const [planSettings, setPlanSettings] = useState<PlanSettings>({ plan_breakfast: true, plan_lunch: true, plan_snack: false, plan_dinner: true })
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([])
-  const [calendarConnected, setCalendarConnected] = useState(false)
-  const [syncing, setSyncing] = useState(false)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [showPanel, setShowPanel] = useState(false)
@@ -71,6 +70,12 @@ export default function MealsPage() {
   // Copy-to-slots
   const [copyModal, setCopyModal] = useState<{ dayIndex: number; mealType: string; name: string } | null>(null)
   const [copyTargets, setCopyTargets] = useState<string[]>([])
+  // Recipes panel
+  const [showRecipes, setShowRecipes] = useState(false)
+  const [recipes, setRecipes] = useState<Recipe[]>([])
+  const [recipesLoaded, setRecipesLoaded] = useState(false)
+  // Save to recipes
+  const [savedMealKeys, setSavedMealKeys] = useState<Set<string>>(new Set())
   const supabase = createClient()
 
   const slotKey = (dayIndex: number, mealType: string) => `${dayIndex}-${mealType}`
@@ -201,12 +206,14 @@ export default function MealsPage() {
         return
       }
 
+      const existingMealNames = meals.map(m => m.custom_name).filter(Boolean)
       const res = await fetch('/api/suggest-meals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt,
           userId: user.id,
+          existingMeals: existingMealNames,
           filters: {
             cuisines: filters.cuisines,
             proteins: filters.proteins,
@@ -316,19 +323,48 @@ export default function MealsPage() {
     }
   }
 
-  const syncCalendar = async () => {
-    setSyncing(true)
-    try {
-      const res = await fetch('/api/calendar-events', { method: 'POST' })
-      const data = await res.json()
-      if (data.events) {
-        setCalendarEvents(data.events)
-        setCalendarConnected(true)
-      } else if (data.needsAuth) {
-        window.location.href = '/api/auth/google-calendar'
+  const loadRecipes = async () => {
+    if (recipesLoaded) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const { data } = await supabase.from('recipes').select('id, name, prep_time, rating').eq('user_id', user.id).order('name')
+    setRecipes(data || [])
+    setRecipesLoaded(true)
+  }
+
+  const handleAddRecipeToSlot = async (recipeName: string) => {
+    for (const mt of activeMealTypes) {
+      for (let d = 0; d < 7; d++) {
+        const existing = meals.find(m => m.day_index === d && m.meal_type === mt.key)
+        if (!existing?.custom_name) {
+          await saveMeal(d, mt.key, recipeName)
+          return
+        }
       }
-    } catch { /* ignore */ }
-    setSyncing(false)
+    }
+    // Fallback: overwrite last slot of primary meal type
+    await saveMeal(6, primaryMealType, recipeName)
+  }
+
+  const saveSlotToRecipes = async (dayIndex: number, mealType: string) => {
+    const meal = meals.find(m => m.day_index === dayIndex && m.meal_type === mealType)
+    if (!meal?.custom_name) return
+    const k = slotKey(dayIndex, mealType)
+    if (savedMealKeys.has(k)) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const tip = tooltipDetails[k]
+    const { data: existing } = await supabase
+      .from('recipes').select('id').ilike('name', meal.custom_name).eq('user_id', user.id).maybeSingle()
+    if (!existing) {
+      await supabase.from('recipes').insert({
+        user_id: user.id,
+        name: meal.custom_name,
+        ingredients: tip?.ingredients || [],
+        prep_time: tip?.cooking_time_minutes || null,
+      })
+    }
+    setSavedMealKeys(prev => new Set([...prev, k]))
   }
 
   const gridCols = activeMealTypes.length === 1 ? 'grid-cols-1'
@@ -373,18 +409,17 @@ export default function MealsPage() {
               </button>
             )}
             <button
-              onClick={syncCalendar}
-              disabled={syncing}
+              onClick={() => { setShowRecipes(r => !r); if (!recipesLoaded) loadRecipes() }}
               className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all"
               style={{
-                background: calendarConnected ? 'var(--secondary-light)' : 'var(--card)',
-                color: calendarConnected ? 'var(--secondary)' : 'var(--muted)',
+                background: showRecipes ? 'var(--primary-light)' : 'var(--card)',
+                color: showRecipes ? 'var(--primary)' : 'var(--muted)',
                 border: '1px solid var(--border)',
                 boxShadow: 'var(--shadow-sm)',
               }}
             >
-              <CalendarIcon size={15} />
-              {syncing ? 'Syncing…' : calendarConnected ? 'Synced' : 'Sync calendar'}
+              <CookieIcon size={14} />
+              My Recipes
             </button>
             <button
               onClick={handleGenerate}
@@ -421,6 +456,51 @@ export default function MealsPage() {
             )
           })}
         </div>
+
+        {/* My Recipes panel */}
+        {showRecipes && (
+          <div
+            className="rounded-2xl p-5 mb-6"
+            style={{ background: 'var(--card)', boxShadow: 'var(--shadow-md)', border: '1px solid var(--border)' }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm font-semibold flex items-center gap-1.5" style={{ color: 'var(--foreground)' }}>
+                <CookieIcon size={14} /> My Recipes
+              </p>
+              <button onClick={() => setShowRecipes(false)} style={{ color: 'var(--muted)' }}>
+                <XIcon size={16} />
+              </button>
+            </div>
+            {!recipesLoaded ? (
+              <p className="text-sm py-2" style={{ color: 'var(--muted)' }}>Loading…</p>
+            ) : recipes.length === 0 ? (
+              <div className="text-center py-6">
+                <p className="text-sm mb-2" style={{ color: 'var(--muted)' }}>No saved recipes yet</p>
+                <a href="/recipes" className="text-sm font-medium" style={{ color: 'var(--primary)' }}>
+                  Add recipes →
+                </a>
+              </div>
+            ) : (
+              <>
+                <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
+                  Tap to add to next free slot:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {recipes.map(r => (
+                    <button
+                      key={r.id}
+                      onClick={() => handleAddRecipeToSlot(r.name)}
+                      className="text-sm px-3 py-1.5 rounded-full font-medium transition-all hover:opacity-80 active:scale-95"
+                      style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                    >
+                      + {r.name}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
         {/* AI suggestions panel */}
         {showPanel && (
@@ -703,9 +783,7 @@ export default function MealsPage() {
                       const sk = slotKey(dayIndex, key)
                       const tip = tooltipDetails[sk]
                       const showTip = hoverKey === sk && hasMeal && !dirty && tip
-                      const missingIngs = tip?.ingredients?.filter(ing =>
-                        !pantryItems.some(p => ing.toLowerCase().includes(p))
-                      ) ?? []
+                      const isSaved = savedMealKeys.has(sk)
                       return (
                         <div key={key} className="relative">
                           <p className="flex items-center gap-1 text-xs mb-1.5 font-medium" style={{ color: 'var(--muted)' }}>
@@ -744,6 +822,14 @@ export default function MealsPage() {
                             {!dirty && hasMeal && (
                               <>
                                 <button
+                                  onClick={() => saveSlotToRecipes(dayIndex, key)}
+                                  className="absolute right-16 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
+                                  style={{ color: isSaved ? 'var(--primary)' : 'var(--muted)' }}
+                                  title={isSaved ? 'Saved to recipes' : 'Save to my recipes'}
+                                >
+                                  <BookmarkIcon size={13} saved={isSaved} />
+                                </button>
+                                <button
                                   onClick={() => { setCopyModal({ dayIndex, mealType: key, name: getMealValue(dayIndex, key) }); setCopyTargets([]) }}
                                   className="absolute right-8 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
                                   style={{ color: 'var(--muted)' }}
@@ -765,14 +851,14 @@ export default function MealsPage() {
                             {/* Hover tooltip */}
                             {showTip && (
                               <div
-                                className="absolute bottom-full left-0 mb-2 z-30 w-56 rounded-2xl p-3 text-xs"
+                                className="absolute bottom-full left-0 mb-2 z-30 w-60 rounded-2xl p-3 text-xs"
                                 style={{ background: 'var(--foreground)', color: 'var(--background)', boxShadow: 'var(--shadow-lg)', pointerEvents: 'none' }}
                               >
                                 {tip.loading ? (
                                   <p className="opacity-60">Loading details…</p>
                                 ) : (
                                   <>
-                                    <div className="flex items-center gap-3 mb-2.5">
+                                    <div className="flex items-center gap-3 mb-2">
                                       {tip.cooking_time_minutes > 0 && (
                                         <span className="flex items-center gap-1 opacity-90">
                                           <ClockIcon size={11} /> {tip.cooking_time_minutes} min
@@ -784,20 +870,13 @@ export default function MealsPage() {
                                         </span>
                                       )}
                                     </div>
-                                    {missingIngs.length > 0 ? (
-                                      <div>
-                                        <p className="flex items-center gap-1 mb-1 opacity-70">
-                                          <PackageIcon size={11} /> Missing from pantry:
-                                        </p>
-                                        {missingIngs.slice(0, 4).map((ing, i) => (
-                                          <p key={i} className="opacity-80 truncate">• {ing}</p>
-                                        ))}
-                                        {missingIngs.length > 4 && (
-                                          <p className="opacity-50">+{missingIngs.length - 4} more</p>
-                                        )}
-                                      </div>
-                                    ) : pantryItems.length > 0 ? (
-                                      <p className="opacity-70 flex items-center gap-1"><PackageIcon size={11} /> All ingredients in pantry</p>
+                                    {tip.description ? (
+                                      <p className="opacity-80 leading-relaxed">{tip.description}</p>
+                                    ) : tip.ingredients?.length > 0 ? (
+                                      <p className="opacity-80 leading-relaxed">
+                                        Made with {tip.ingredients.slice(0, 3).map(i => i.replace(/^\d+[\w.]*\s+/, '').replace(/^(g|kg|ml|l)\s+/, '')).join(', ')}
+                                        {tip.ingredients.length > 3 ? ` +${tip.ingredients.length - 3} more` : ''}
+                                      </p>
                                     ) : null}
                                   </>
                                 )}
@@ -924,6 +1003,14 @@ function CopyIcon({ size = 14 }: { size?: number }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  )
+}
+
+function BookmarkIcon({ size = 14, saved = false }: { size?: number; saved?: boolean }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill={saved ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
     </svg>
   )
 }

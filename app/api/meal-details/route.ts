@@ -70,8 +70,9 @@ export async function POST(request: Request) {
         system: `You are a cooking assistant. Given a meal name, return a JSON object with these exact fields:
 - cooking_time_minutes: integer (realistic total time including prep)
 - calories_per_serving: integer (reasonable estimate per serving)
-- ingredients: string array of 4-8 main ingredients (short, like "2 chicken breasts", "200g pasta")
-- instructions: string array of 4-6 short cooking steps (each step 1 sentence, plain text, no numbering)
+- description: string (1-2 sentences describing the dish and its flavour profile, e.g. "A rich and creamy Italian pasta with crispy pancetta and a silky egg-based sauce.")
+- ingredients: string array of 4-8 main ingredients (short, like "2 chicken breasts", "200g pasta") — include ONLY ingredients that appear in the instructions; no hidden extras
+- instructions: string array of 4-6 short cooking steps (each step 1 sentence, plain text, no numbering) — reference only the ingredients listed above
 
 Return ONLY valid JSON. No explanation, no markdown, no extra text.`,
         messages: [{

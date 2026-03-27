@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 export async function POST(request: Request) {
-  const { prompt, userId, filters } = await request.json()
+  const { prompt, userId, filters, existingMeals } = await request.json()
   const activeFilters: { cuisines?: string[]; proteins?: string[]; maxTime?: number | null; usePantry?: boolean } = filters || {}
 
   const supabase = await createClient()
@@ -34,6 +34,8 @@ export async function POST(request: Request) {
 
   const pantryNames = (pantry || []).map(p => p.name).filter(Boolean)
 
+  const alreadyPlanned: string[] = Array.isArray(existingMeals) ? existingMeals.filter(Boolean) : []
+
   const context = [
     settings ? `Household: ${settings.household_size} people` : '',
     settings?.dietary_preferences?.length ? `Household dietary preferences: ${settings.dietary_preferences.join(', ')}` : '',
@@ -43,6 +45,9 @@ export async function POST(request: Request) {
     recipes?.length ? `Favourite recipes: ${recipes.filter(r => r.rating >= 4).map(r => r.name).join(', ')}` : '',
     pantryNames.length
       ? `Pantry items (may be in Estonian, Russian, Finnish or English — prioritise meals that use these up): ${pantryNames.join(', ')}`
+      : '',
+    alreadyPlanned.length
+      ? `ALREADY PLANNED this week (DO NOT suggest these or anything similar — avoid same main ingredient, same cuisine, or same cooking style): ${alreadyPlanned.join(', ')}`
       : '',
   ].filter(Boolean).join('\n')
 
