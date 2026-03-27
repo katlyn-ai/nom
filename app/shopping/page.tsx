@@ -76,7 +76,8 @@ export default function ShoppingPage() {
       .channel('shopping')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'shopping_items' }, payload => {
         if (payload.eventType === 'INSERT') {
-          setItems(prev => [...prev, payload.new as ShoppingItem])
+          // Deduplicate — item may already be in state from optimistic update
+          setItems(prev => prev.some(i => i.id === payload.new.id) ? prev : [...prev, payload.new as ShoppingItem])
         } else if (payload.eventType === 'UPDATE') {
           setItems(prev => prev.map(i => i.id === payload.new.id ? payload.new as ShoppingItem : i))
         } else if (payload.eventType === 'DELETE') {
@@ -143,6 +144,8 @@ export default function ShoppingPage() {
     }).select().single()
 
     if (data) {
+      // Add immediately so it shows up without waiting for real-time
+      setItems(prev => [...prev, data])
       // Auto-categorise in background
       categoriseItem(name).then(category => {
         if (category !== 'Other') {
