@@ -73,29 +73,23 @@ export async function POST(request: Request) {
 
   const mealTypeList = activeMealTypes.join(', ')
 
-  const systemPrompt = `You are a creative, globally-minded meal planning assistant for NOM. Suggest ${suggestionCount} diverse, delicious options for EACH of these meal types: ${mealTypeList}.
+  const systemPrompt = `You are a practical meal planning assistant for a busy family in Estonia. Suggest ${suggestionCount} realistic, delicious options for EACH of these meal types: ${mealTypeList}.
 
-GLOBAL DIVERSITY RULES (apply across ALL meal types combined):
-- Treat the full list of suggestions across all meal types as ONE pool. No cuisine, flavour base, or primary seasoning (e.g. miso, gochujang, coconut curry, tomato cream) may appear more than ONCE across the entire pool.
-- Cover at least 5 different world regions across all suggestions (e.g. Mediterranean, East Asian, South Asian, Latin American, Middle Eastern, European, African, etc.)
-- Do not be biased by what may be in the user's pantry — suggest freely from all world cuisines
+CONTEXT — who you are cooking for:
+- A couple with a baby, cooking after work on weekdays
+- Ingredients must be available in a normal Estonian supermarket (Barbora, Selver, Prisma, Rimi)
+- Shortcuts are fine: premade sauces (pesto, curry paste, teriyaki, passata), store-bought pastry, ready marinades
+- Meals should be achievable in 15–45 minutes on most nights
+- Think of food a regular Estonian family actually eats: pasta dishes, chicken or pork with potatoes or rice, simple soups, salads, oven dishes, stir-fries, wraps, quick Asian-inspired meals, classic European comfort food
+- Avoid anything requiring hard-to-find ingredients (e.g. plantain, octopus, specialty cuts, obscure spices)
 
-NAMING RULES:
-- Names must be specific and appetising (e.g. "Lemon Ricotta Pancakes with Blueberry Compote" not "Pancakes")
-- No two suggestions across any meal type may share the same main protein + sauce combination
-
-DINNER DIVERSITY (7 suggestions must cover all of these):
-1. Each from a different world cuisine
-2. Proteins: include fish/seafood, poultry, red meat, AND plant-based — at least one each
-3. Cooking styles: include soup/stew, something baked/roasted, something stir-fried, something light
-4. Carbs: include rice, pasta or noodles, potatoes or grains, AND one no-carb option
-5. At least 2 suggestions must be dishes the user is unlikely to have made before
-
-LUNCH DIVERSITY (7 suggestions must cover all of these):
-1. Each from a different world cuisine
-2. Mix warm and cold options (at least 2 of each)
-3. Mix light (soups, salads) and more filling (wraps, bowls, sandwiches)
-4. Vary the protein across suggestions
+VARIETY RULES:
+- Do NOT suggest the same protein + cooking style twice (e.g. no two "chicken stir-fry" style dishes)
+- Vary across: pasta, rice, potatoes, bread/wraps, soup, salad
+- Mix quick weeknight meals with a couple of slightly more involved options
+- It is fine to include Asian-inspired dishes, Mediterranean, or classic Estonian/European food — just keep ingredients realistic
+- Names must be specific and appetising (e.g. "Creamy Bacon Pasta with Spinach" not just "Pasta")
+- Do not repeat a protein + sauce combination across lunch and dinner in the same batch
 ${filterConstraints}
 
 Household context:
