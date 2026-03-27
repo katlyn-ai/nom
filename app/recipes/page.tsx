@@ -69,6 +69,8 @@ export default function RecipesPage() {
   const [toast, setToast] = useState<string | null>(null)
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [fillingRecipes, setFillingRecipes] = useState(false)
+  const [fillResult, setFillResult] = useState<{ filled: number; total: number } | null>(null)
 
   const supabase = createClient()
 
@@ -137,6 +139,27 @@ export default function RecipesPage() {
     setSelected(null)
     setDeletingId(null)
   }
+
+  const fillMissingRecipes = async () => {
+    if (!userId || fillingRecipes) return
+    setFillingRecipes(true)
+    setFillResult(null)
+    try {
+      const res = await fetch('/api/populate-recipes', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      })
+      const data = await res.json()
+      setFillResult({ filled: data.filled || 0, total: data.total || 0 })
+      // Reload recipes to show newly populated ones
+      const { data: fresh } = await supabase.from('recipes').select('*').eq('user_id', userId).order('name')
+      if (fresh) setRecipes(fresh)
+    } catch { /* silent */ }
+    setFillingRecipes(false)
+  }
+
+  const emptyRecipes = recipes.filter(r => !r.ingredients?.length)
 
   const handleRate = async (id: string, rating: number) => {
     await supabase.from('recipes').update({ rating }).eq('id', id)
@@ -315,9 +338,44 @@ export default function RecipesPage() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Search recipes or tags…"
-          className="w-full px-4 py-3 rounded-xl border text-sm outline-none mb-6"
+          className="w-full px-4 py-3 rounded-xl border text-sm outline-none mb-4"
           style={{ borderColor: 'var(--border)', background: 'var(--card)', color: 'var(--foreground)' }}
         />
+
+        {/* Auto-fill banner — shown when recipes are missing ingredients */}
+        {emptyRecipes.length > 0 && (
+          <div
+            className="rounded-2xl p-4 mb-5 flex items-center justify-between gap-3 flex-wrap"
+            style={{ background: 'var(--primary-light)', border: '1px solid var(--primary)' }}
+          >
+            <div>
+              <p className="text-sm font-semibold" style={{ color: 'var(--primary)' }}>
+                ✨ {emptyRecipes.length} recipe{emptyRecipes.length > 1 ? 's' : ''} missing ingredients
+              </p>
+              <p className="text-xs mt-0.5" style={{ color: 'var(--primary)' }}>
+                Auto-fill with AI so they work with pantry &amp; shopping list
+              </p>
+            </div>
+            <button
+              onClick={fillMissingRecipes}
+              disabled={fillingRecipes}
+              className="px-4 py-2 rounded-xl text-white text-sm font-semibold flex-shrink-0 disabled:opacity-60"
+              style={{ background: 'var(--primary)' }}
+            >
+              {fillingRecipes ? 'Filling in…' : 'Auto-fill all'}
+            </button>
+          </div>
+        )}
+
+        {fillResult && fillResult.total > 0 && (
+          <div
+            className="rounded-2xl p-3 mb-5 text-sm"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)', color: 'var(--muted)' }}
+          >
+            ✓ Filled in {fillResult.filled} of {fillResult.total} recipes
+            <button onClick={() => setFillResult(null)} className="ml-3 text-xs underline">dismiss</button>
+          </div>
+        )}
 
         {/* Recipe list */}
         {filtered.length === 0 ? (
