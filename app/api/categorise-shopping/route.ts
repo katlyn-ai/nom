@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-const CATEGORIES = ['Produce', 'Dairy', 'Meat', 'Pantry', 'Frozen', 'Drinks', 'Bakery', 'Other']
+const CATEGORIES = ['Produce', 'Dairy', 'Meat', 'Pantry', 'Spices', 'Frozen', 'Drinks', 'Bakery', 'Other']
 
 export async function POST(request: Request) {
   const { items } = await request.json() as { items: string[] }

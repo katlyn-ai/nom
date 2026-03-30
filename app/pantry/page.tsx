@@ -34,7 +34,7 @@ const EXPIRY_STYLES: Record<string, { bg: string; color: string; label: (d: stri
   fine:     { bg: 'var(--border)', color: 'var(--muted)', label: (d) => `Exp ${new Date(d + 'T00:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}` },
 }
 
-const CATEGORIES = ['Produce', 'Dairy', 'Meat', 'Pantry', 'Frozen', 'Drinks', 'Other']
+const CATEGORIES = ['Produce', 'Dairy', 'Meat', 'Pantry', 'Spices', 'Frozen', 'Drinks', 'Other']
 
 const supabase = createClient()
 
