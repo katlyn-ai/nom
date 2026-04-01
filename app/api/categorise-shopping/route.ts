@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-const CATEGORIES = ['Produce', 'Dairy', 'Meat', 'Pantry', 'Spices', 'Frozen', 'Drinks', 'Bakery', 'Other']
+const CATEGORIES = ['Produce', 'Dairy', 'Meat', 'Grains & Pasta', 'Dry Goods', 'Condiments', 'Tins & Jars', 'Spices', 'Bakery', 'Frozen', 'Drinks', 'Other']
 
 export async function POST(request: Request) {
   const { items } = await request.json() as { items: string[] }
@@ -12,14 +12,18 @@ export async function POST(request: Request) {
 ${CATEGORIES.join(', ')}
 
 Category definitions:
-- Produce: fresh fruit, vegetables, herbs, salad
-- Dairy: milk, cheese, yogurt, butter, eggs, cream
-- Meat: meat, poultry, fish, seafood, cold cuts
-- Pantry: dry goods, tins, jars, condiments, spices, oil, flour, pasta, rice, snacks, baking
-- Frozen: anything frozen
-- Drinks: water, juice, wine, beer, soft drinks, coffee, tea
-- Bakery: bread, rolls, wraps, pastries
-- Other: anything that doesn't clearly fit the above
+- Produce: fresh fruit, vegetables, fresh herbs (basil, parsley, dill), salad leaves
+- Dairy: milk, cheese, yogurt, butter, eggs, cream, crème fraîche
+- Meat: fresh or raw meat, poultry, fish, seafood, cold cuts, bacon, sausages
+- Grains & Pasta: rice, pasta, noodles, couscous, quinoa, oats, polenta, lentils, dried beans, dried chickpeas
+- Dry Goods: flour, sugar, cornstarch, baking powder, baking soda, breadcrumbs, cocoa powder, icing sugar, dried fruit, nuts, seeds, crackers, cereals
+- Condiments: oils (olive oil, vegetable oil), vinegars, soy sauce, fish sauce, Worcestershire sauce, mayo, ketchup, mustard, hot sauce, pesto, tahini, miso paste, curry paste, gochujang, honey, maple syrup, jam, nut butter
+- Tins & Jars: tinned tomatoes, tinned beans, tinned chickpeas, tinned fish (tuna, sardines), coconut milk, stock cubes/powder, passata, tomato paste, tinned corn, tinned fruit
+- Spices: dried spices, dried herbs (oregano, thyme, cumin, paprika, turmeric, cinnamon, black pepper, chilli flakes, bay leaves, mixed herbs)
+- Bakery: bread, rolls, wraps, tortillas, pastries, croissants, store-bought pastry
+- Frozen: anything frozen (frozen vegetables, frozen fish, frozen meals, ice cream)
+- Drinks: water, juice, wine, beer, soft drinks, coffee, tea, oat milk, plant milk
+- Other: cleaning products, toiletries, bags, or anything that doesn't clearly fit above
 
 Items may be written in any language. Use your knowledge to identify each item.
 
