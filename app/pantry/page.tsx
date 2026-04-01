@@ -1,9 +1,27 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Nav from '@/components/nav'
 import { PackageIcon, PlusIcon, XIcon } from '@/components/icons'
+
+function CameraIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+      <circle cx="12" cy="13" r="4"/>
+    </svg>
+  )
+}
+
+function ChecklistIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+      <polyline points="3 6 4 7 6 5"/><polyline points="3 12 4 13 6 11"/><polyline points="3 18 4 19 6 17"/>
+    </svg>
+  )
+}
 
 type PantryItem = {
   id: string
@@ -48,6 +66,18 @@ export default function PantryPage() {
   const [addingToCart, setAddingToCart] = useState(false)
   const [adding, setAdding] = useState(false)
   const [addError, setAddError] = useState<string | null>(null)
+  // Receipt scanning
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [scanning, setScanning] = useState(false)
+  const [scanResults, setScanResults] = useState<{ name: string; quantity: string | null; category: string }[]>([])
+  const [scanSelected, setScanSelected] = useState<Set<number>>(new Set())
+  const [showScanModal, setShowScanModal] = useState(false)
+  const [confirmingScan, setConfirmingScan] = useState(false)
+  const [scanSkipped, setScanSkipped] = useState(0)
+  // Quick review mode
+  const [reviewMode, setReviewMode] = useState(false)
+  const [reviewQueue, setReviewQueue] = useState<string[]>([])
+  const [reviewPos, setReviewPos] = useState(0)
 
   useEffect(() => {
     const load = async () => {
@@ -108,6 +138,81 @@ export default function PantryPage() {
     setAdding(false)
   }
 
+  // ── Receipt scanning ─────────────────────────────────────────────────────
+  const handleScanUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setScanning(true)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const base64 = (reader.result as string).split(',')[1]
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) { setScanning(false); return }
+
+        const res = await fetch('/api/scan-receipt', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ imageBase64: base64, mimeType: file.type || 'image/jpeg', userId: user.id }),
+        })
+        const data = await res.json()
+
+        if (data.items && data.items.length > 0) {
+          setScanResults(data.items)
+          setScanSelected(new Set(data.items.map((_: unknown, i: number) => i)))
+          setScanSkipped(data.skipped || 0)
+          setShowScanModal(true)
+        } else {
+          alert('No new items found. Either the receipt was unclear or everything is already in your pantry.')
+        }
+      } catch {
+        alert('Something went wrong scanning the receipt. Try again.')
+      }
+      setScanning(false)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const confirmScanItems = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    setConfirmingScan(true)
+    const toAdd = scanResults.filter((_, i) => scanSelected.has(i))
+    for (const item of toAdd) {
+      const { data } = await supabase.from('pantry_items').insert({
+        user_id: user.id,
+        name: item.name,
+        category: item.category || 'Other',
+        in_stock: true,
+        quantity: item.quantity || null,
+      }).select().single()
+      if (data) setItems(prev => [...prev, data])
+    }
+    setShowScanModal(false)
+    setScanResults([])
+    setScanSelected(new Set())
+    setConfirmingScan(false)
+  }
+
+  // ── Quick review ──────────────────────────────────────────────────────────
+  const startReview = () => {
+    setReviewQueue(inStock.map(i => i.id))
+    setReviewPos(0)
+    setReviewMode(true)
+  }
+
+  const reviewItemId = reviewQueue[reviewPos]
+  const reviewItem = items.find(i => i.id === reviewItemId) ?? null
+  const reviewDone = reviewPos >= reviewQueue.length
+
+  const reviewNext = () => setReviewPos(prev => prev + 1)
+
+  const reviewMarkOut = (item: PantryItem) => {
+    setOutPrompt({ id: item.id, name: item.name })
+  }
+
   const markOut = (item: PantryItem) => {
     // Show a popup asking whether to add to shopping list, then delete
     setOutPrompt({ id: item.id, name: item.name })
@@ -148,6 +253,8 @@ export default function PantryPage() {
     setItems(prev => prev.filter(i => i.id !== outPrompt.id))
     setAddingToCart(false)
     setOutPrompt(null)
+    // If in review mode, advance past the deleted item
+    if (reviewMode) setReviewPos(prev => prev + 1)
   }
 
   const deleteItem = async (id: string) => {
@@ -318,11 +425,45 @@ export default function PantryPage() {
       <Nav />
       <main className="md:ml-64 px-6 py-8 pb-24 md:pb-8 max-w-2xl">
 
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Pantry</h1>
-          <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
-            {inStock.length} items in stock
-          </p>
+        <div className="mb-6 flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Pantry</h1>
+            <p className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>
+              {inStock.length} items in stock
+            </p>
+          </div>
+          <div className="flex gap-2 flex-shrink-0 mt-1">
+            {/* Hidden file input for receipt scan */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handleScanUpload}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={scanning}
+              title="Scan a receipt"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium disabled:opacity-60"
+              style={{ background: 'var(--primary)', color: 'white' }}
+            >
+              <CameraIcon size={14} />
+              {scanning ? 'Scanning…' : 'Scan receipt'}
+            </button>
+            {inStock.length > 0 && (
+              <button
+                onClick={startReview}
+                title="Quick review — go through each item"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium"
+                style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+              >
+                <ChecklistIcon size={14} />
+                Review
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Expiry warning banner */}
@@ -413,6 +554,150 @@ export default function PantryPage() {
           </div>
         )}
       </main>
+
+      {/* Quick review overlay */}
+      {reviewMode && (
+        <>
+          <div className="fixed inset-0 z-40" style={{ background: 'rgba(0,0,0,0.5)' }} />
+          <div
+            className="fixed inset-x-4 z-50 rounded-3xl p-6 max-w-sm w-full"
+            style={{ background: 'var(--card)', boxShadow: 'var(--shadow-lg)', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}
+          >
+            {reviewDone || !reviewItem ? (
+              <>
+                <div className="text-center mb-5">
+                  <p className="text-4xl mb-3">🎉</p>
+                  <p className="font-semibold text-lg" style={{ color: 'var(--foreground)', fontFamily: 'var(--font-display)' }}>
+                    Pantry review done!
+                  </p>
+                  <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+                    You reviewed all {reviewQueue.length} items.
+                  </p>
+                </div>
+                <button
+                  onClick={() => { setReviewMode(false); setReviewQueue([]); setReviewPos(0) }}
+                  className="w-full py-3 rounded-2xl text-white text-sm font-semibold"
+                  style={{ background: 'var(--gradient-primary)' }}
+                >
+                  Done
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
+                    Quick review — {reviewPos + 1} of {reviewQueue.length}
+                  </p>
+                  <button onClick={() => { setReviewMode(false); setReviewQueue([]); setReviewPos(0) }} style={{ color: 'var(--muted)' }}>
+                    <XIcon size={16} />
+                  </button>
+                </div>
+                {/* Progress bar */}
+                <div className="h-1 rounded-full mb-5 overflow-hidden" style={{ background: 'var(--border)' }}>
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${(reviewPos / reviewQueue.length) * 100}%`, background: 'var(--primary)' }}
+                  />
+                </div>
+                <p className="text-xl font-semibold mb-1" style={{ color: 'var(--foreground)', fontFamily: 'var(--font-display)' }}>
+                  {reviewItem.name}
+                </p>
+                {reviewItem.quantity && (
+                  <p className="text-sm mb-5" style={{ color: 'var(--muted)' }}>Currently: {reviewItem.quantity}</p>
+                )}
+                {!reviewItem.quantity && <div className="mb-5" />}
+                <div className="flex flex-col gap-2.5">
+                  <button
+                    onClick={reviewNext}
+                    className="w-full py-3 rounded-2xl text-white text-sm font-semibold"
+                    style={{ background: 'var(--gradient-primary)' }}
+                  >
+                    ✓ Still have it
+                  </button>
+                  <button
+                    onClick={() => reviewMarkOut(reviewItem)}
+                    className="w-full py-3 rounded-2xl text-sm font-medium"
+                    style={{ background: '#FEE2E2', color: '#DC2626' }}
+                  >
+                    ✕ Ran out
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Scan results modal */}
+      {showScanModal && (
+        <>
+          <div className="fixed inset-0 z-40" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={() => !confirmingScan && setShowScanModal(false)} />
+          <div
+            className="fixed inset-x-4 z-50 rounded-3xl flex flex-col max-w-sm w-full"
+            style={{ background: 'var(--card)', boxShadow: 'var(--shadow-lg)', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', maxHeight: '80vh' }}
+          >
+            <div className="px-5 pt-5 pb-3 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <p className="font-semibold" style={{ color: 'var(--foreground)', fontFamily: 'var(--font-display)' }}>
+                  Found {scanResults.length} item{scanResults.length !== 1 ? 's' : ''}
+                </p>
+                {scanSkipped > 0 && (
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>
+                    {scanSkipped} already in your pantry — skipped
+                  </p>
+                )}
+              </div>
+              <button onClick={() => setShowScanModal(false)} style={{ color: 'var(--muted)' }}>
+                <XIcon size={16} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-2 py-2">
+              {scanResults.map((item, i) => (
+                <button
+                  key={i}
+                  onClick={() => setScanSelected(prev => {
+                    const next = new Set(prev)
+                    next.has(i) ? next.delete(i) : next.add(i)
+                    return next
+                  })}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-colors"
+                  style={{ background: scanSelected.has(i) ? 'var(--primary-light)' : 'transparent' }}
+                >
+                  <div
+                    className="w-4 h-4 rounded flex-shrink-0 flex items-center justify-center"
+                    style={{
+                      background: scanSelected.has(i) ? 'var(--primary)' : 'transparent',
+                      border: `2px solid ${scanSelected.has(i) ? 'var(--primary)' : 'var(--border)'}`,
+                    }}
+                  >
+                    {scanSelected.has(i) && (
+                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--foreground)' }}>{item.name}</p>
+                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                      {item.category}{item.quantity ? ` · ${item.quantity}` : ''}
+                    </p>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <div className="px-5 py-4" style={{ borderTop: '1px solid var(--border)' }}>
+              <button
+                onClick={confirmScanItems}
+                disabled={confirmingScan || scanSelected.size === 0}
+                className="w-full py-3 rounded-2xl text-white text-sm font-semibold disabled:opacity-50"
+                style={{ background: 'var(--gradient-primary)' }}
+              >
+                {confirmingScan ? 'Adding…' : `Add ${scanSelected.size} item${scanSelected.size !== 1 ? 's' : ''} to pantry`}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Ran out popup */}
       {outPrompt && (

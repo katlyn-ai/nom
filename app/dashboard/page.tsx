@@ -201,6 +201,8 @@ export default function DashboardPage() {
   const [swappedIngredients, setSwappedIngredients] = useState<Record<string, string | 'loading'>>({})
   const [savedToRecipes, setSavedToRecipes] = useState(false)
   const [savingRecipe, setSavingRecipe] = useState(false)
+  const [cookingThis, setCookingThis] = useState(false)
+  const [cookedResult, setCookedResult] = useState<{ removed: number } | null>(null)
   // Weekly checklist
   const [checked, setChecked] = useState<Record<string, boolean>>({})
   const [showConfetti, setShowConfetti] = useState(false)
@@ -293,6 +295,41 @@ export default function DashboardPage() {
     setCartAdded(false)
     setSavedToRecipes(false)
     setSavingRecipe(false)
+    setCookingThis(false)
+    setCookedResult(null)
+  }
+
+  const cookThisMeal = async () => {
+    if (!mealDetails || mealDetails.loading || cookingThis) return
+    setCookingThis(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { setCookingThis(false); return }
+
+      // Fetch current pantry items with their ids
+      const { data: pantryData } = await supabase
+        .from('pantry_items')
+        .select('id, name')
+        .eq('user_id', user.id)
+        .eq('in_stock', true)
+
+      const pantryRows = pantryData || []
+      const pantryNames = pantryRows.map(p => p.name.toLowerCase())
+
+      // Find which pantry items match the meal ingredients
+      const toRemove = pantryRows.filter(p =>
+        mealDetails.ingredients.some(ing => matchesPantry(ing, [p.name.toLowerCase()]))
+      )
+
+      if (toRemove.length > 0) {
+        const ids = toRemove.map(p => p.id)
+        await supabase.from('pantry_items').delete().in('id', ids)
+        setPantryItems(prev => prev.filter(name => !toRemove.some(r => r.name.toLowerCase() === name)))
+      }
+
+      setCookedResult({ removed: toRemove.length })
+    } catch { /* silent */ }
+    setCookingThis(false)
   }
 
   const saveToRecipes = async () => {
@@ -742,6 +779,27 @@ export default function DashboardPage() {
 
             {/* Footer actions */}
             <div className="px-6 py-5 space-y-2.5" style={{ borderTop: '1px solid var(--border)' }}>
+              {/* I cooked this */}
+              {!mealDetails?.loading && !cookedResult && (
+                <button
+                  onClick={cookThisMeal}
+                  disabled={cookingThis}
+                  className="w-full py-2.5 rounded-2xl text-sm font-medium disabled:opacity-60"
+                  style={{ background: 'var(--primary)', color: 'white' }}
+                >
+                  {cookingThis ? 'Updating pantry…' : '👨‍🍳 I cooked this — update pantry'}
+                </button>
+              )}
+              {cookedResult && (
+                <div
+                  className="w-full py-2.5 rounded-2xl text-sm font-medium text-center"
+                  style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                >
+                  ✓ {cookedResult.removed > 0
+                    ? `Removed ${cookedResult.removed} ingredient${cookedResult.removed !== 1 ? 's' : ''} from pantry`
+                    : 'Pantry updated'}
+                </div>
+              )}
               {/* Save to Recipes */}
               {!mealDetails?.loading && (
                 <button

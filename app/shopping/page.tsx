@@ -44,6 +44,9 @@ export default function ShoppingPage() {
   const [addingStaple, setAddingStaple] = useState(false)
   const [addingAllStaples, setAddingAllStaples] = useState(false)
 
+  // Pantry sync
+  const [movingToPantry, setMovingToPantry] = useState(false)
+  const [movedCount, setMovedCount] = useState(0)
   // Go Shopping modal
   const [showShopModal, setShowShopModal] = useState(false)
   const [selectedStore, setSelectedStore] = useState<typeof STORES[number] | null>(null)
@@ -171,6 +174,43 @@ export default function ShoppingPage() {
     const checkedIds = items.filter(i => i.checked).map(i => i.id)
     await supabase.from('shopping_items').delete().in('id', checkedIds)
     setItems(prev => prev.filter(i => !i.checked))
+  }
+
+  const moveCheckedToPantry = async () => {
+    if (movingToPantry) return
+    setMovingToPantry(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) { setMovingToPantry(false); return }
+
+    const checkedItems = items.filter(i => i.checked)
+
+    // Fetch existing pantry names to avoid dupes
+    const { data: existing } = await supabase
+      .from('pantry_items').select('name').eq('user_id', user.id).eq('in_stock', true)
+    const existingNames = (existing || []).map(e => e.name.toLowerCase())
+
+    const toAdd = checkedItems.filter(item =>
+      !existingNames.some(e => e === item.name.toLowerCase())
+    )
+
+    // Insert into pantry
+    for (const item of toAdd) {
+      await supabase.from('pantry_items').insert({
+        user_id: user.id,
+        name: item.name,
+        category: item.category || 'Other',
+        in_stock: true,
+        quantity: item.quantity || null,
+      })
+    }
+
+    // Remove from shopping list
+    const ids = checkedItems.map(i => i.id)
+    await supabase.from('shopping_items').delete().in('id', ids)
+    setItems(prev => prev.filter(i => !i.checked))
+    setMovedCount(toAdd.length)
+    setTimeout(() => setMovedCount(0), 3000)
+    setMovingToPantry(false)
   }
 
   const generateFromMeals = async () => {
@@ -556,14 +596,33 @@ export default function ShoppingPage() {
           </div>
         )}
 
-        {checkedCount > 0 && (
-          <button
-            onClick={deleteChecked}
-            className="mt-6 w-full py-3 rounded-xl text-sm font-medium"
-            style={{ background: 'var(--border)', color: 'var(--muted)' }}
+        {movedCount > 0 && (
+          <div
+            className="mt-4 px-4 py-3 rounded-xl text-sm font-medium text-center"
+            style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
           >
-            Remove {checkedCount} checked item{checkedCount > 1 ? 's' : ''}
-          </button>
+            ✓ {movedCount} item{movedCount !== 1 ? 's' : ''} added to pantry
+          </div>
+        )}
+
+        {checkedCount > 0 && (
+          <div className="mt-4 flex gap-2">
+            <button
+              onClick={moveCheckedToPantry}
+              disabled={movingToPantry}
+              className="flex-1 py-3 rounded-xl text-sm font-semibold disabled:opacity-60"
+              style={{ background: 'var(--primary)', color: 'white' }}
+            >
+              {movingToPantry ? 'Moving…' : `📦 Add ${checkedCount} to pantry`}
+            </button>
+            <button
+              onClick={deleteChecked}
+              className="py-3 px-4 rounded-xl text-sm font-medium"
+              style={{ background: 'var(--border)', color: 'var(--muted)' }}
+            >
+              Remove
+            </button>
+          </div>
         )}
 
         {/* Go Shopping button */}
