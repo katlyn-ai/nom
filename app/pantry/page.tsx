@@ -78,6 +78,8 @@ export default function PantryPage() {
   const [reviewMode, setReviewMode] = useState(false)
   const [reviewQueue, setReviewQueue] = useState<string[]>([])
   const [reviewPos, setReviewPos] = useState(0)
+  const [reviewEditingQty, setReviewEditingQty] = useState(false)
+  const [reviewQtyDraft, setReviewQtyDraft] = useState('')
 
   useEffect(() => {
     const load = async () => {
@@ -200,6 +202,8 @@ export default function PantryPage() {
   const startReview = () => {
     setReviewQueue(inStock.map(i => i.id))
     setReviewPos(0)
+    setReviewEditingQty(false)
+    setReviewQtyDraft('')
     setReviewMode(true)
   }
 
@@ -211,6 +215,20 @@ export default function PantryPage() {
 
   const reviewMarkOut = (item: PantryItem) => {
     setOutPrompt({ id: item.id, name: item.name })
+  }
+
+  const reviewStartQtyEdit = (item: PantryItem) => {
+    setReviewQtyDraft(item.quantity ?? '')
+    setReviewEditingQty(true)
+  }
+
+  const reviewSaveQty = async (item: PantryItem) => {
+    const trimmed = reviewQtyDraft.trim() || null
+    await supabase.from('pantry_items').update({ quantity: trimmed }).eq('id', item.id)
+    setItems(prev => prev.map(p => p.id === item.id ? { ...p, quantity: trimmed } : p))
+    setReviewEditingQty(false)
+    setReviewQtyDraft('')
+    setReviewPos(prev => prev + 1)
   }
 
   const markOut = (item: PantryItem) => {
@@ -602,25 +620,72 @@ export default function PantryPage() {
                 <p className="text-xl font-semibold mb-1" style={{ color: 'var(--foreground)', fontFamily: 'var(--font-display)' }}>
                   {reviewItem.name}
                 </p>
-                {reviewItem.quantity && (
-                  <p className="text-sm mb-5" style={{ color: 'var(--muted)' }}>Currently: {reviewItem.quantity}</p>
+                {reviewItem.quantity && !reviewEditingQty && (
+                  <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>Currently: {reviewItem.quantity}</p>
                 )}
-                {!reviewItem.quantity && <div className="mb-5" />}
-                <div className="flex flex-col gap-2.5">
-                  <button
-                    onClick={reviewNext}
-                    className="w-full py-3 rounded-2xl text-white text-sm font-semibold"
-                    style={{ background: 'var(--gradient-primary)' }}
-                  >
-                    ✓ Still have it
-                  </button>
-                  <button
-                    onClick={() => reviewMarkOut(reviewItem)}
-                    className="w-full py-3 rounded-2xl text-sm font-medium"
-                    style={{ background: '#FEE2E2', color: '#DC2626' }}
-                  >
-                    ✕ Ran out
-                  </button>
+                {!reviewItem.quantity && !reviewEditingQty && <div className="mb-4" />}
+
+                {/* Inline qty editor */}
+                {reviewEditingQty && (
+                  <div className="mb-4">
+                    <input
+                      autoFocus
+                      value={reviewQtyDraft}
+                      onChange={e => setReviewQtyDraft(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') reviewSaveQty(reviewItem)
+                        if (e.key === 'Escape') { setReviewEditingQty(false) }
+                      }}
+                      placeholder="e.g. 200g, half a bottle, 3 left…"
+                      className="w-full px-4 py-2.5 rounded-xl text-sm outline-none"
+                      style={{ background: 'var(--background)', border: '1.5px solid var(--primary)', color: 'var(--foreground)' }}
+                    />
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-2">
+                  {reviewEditingQty ? (
+                    <>
+                      <button
+                        onClick={() => reviewSaveQty(reviewItem)}
+                        className="w-full py-3 rounded-2xl text-white text-sm font-semibold"
+                        style={{ background: 'var(--gradient-primary)' }}
+                      >
+                        ✓ Save amount
+                      </button>
+                      <button
+                        onClick={() => setReviewEditingQty(false)}
+                        className="w-full py-2.5 rounded-2xl text-sm font-medium"
+                        style={{ background: 'var(--background)', color: 'var(--muted)', border: '1px solid var(--border)' }}
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={reviewNext}
+                        className="w-full py-3 rounded-2xl text-white text-sm font-semibold"
+                        style={{ background: 'var(--gradient-primary)' }}
+                      >
+                        ✓ Still have it
+                      </button>
+                      <button
+                        onClick={() => reviewStartQtyEdit(reviewItem)}
+                        className="w-full py-2.5 rounded-2xl text-sm font-medium"
+                        style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
+                      >
+                        ↻ Amount changed
+                      </button>
+                      <button
+                        onClick={() => reviewMarkOut(reviewItem)}
+                        className="w-full py-2.5 rounded-2xl text-sm font-medium"
+                        style={{ background: '#FEE2E2', color: '#DC2626' }}
+                      >
+                        ✕ Ran out
+                      </button>
+                    </>
+                  )}
                 </div>
               </>
             )}
