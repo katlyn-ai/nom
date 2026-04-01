@@ -74,6 +74,8 @@ export default function PantryPage() {
   const [showScanModal, setShowScanModal] = useState(false)
   const [confirmingScan, setConfirmingScan] = useState(false)
   const [scanSkipped, setScanSkipped] = useState(0)
+  // Copy pantry prompt
+  const [promptCopied, setPromptCopied] = useState(false)
   // Quick review mode
   const [reviewMode, setReviewMode] = useState(false)
   const [reviewQueue, setReviewQueue] = useState<string[]>([])
@@ -229,6 +231,32 @@ export default function PantryPage() {
     setReviewEditingQty(false)
     setReviewQtyDraft('')
     setReviewPos(prev => prev + 1)
+  }
+
+  const copyPantryPrompt = () => {
+    if (inStock.length === 0) return
+    // Build grouped list
+    const lines: string[] = []
+    CATEGORIES.forEach(cat => {
+      const catItems = inStock.filter(i =>
+        cat === 'Other'
+          ? (i.category === 'Other' || !CATEGORIES.includes(i.category))
+          : i.category === cat
+      )
+      if (catItems.length === 0) return
+      lines.push(`${cat}:`)
+      catItems.forEach(i => {
+        lines.push(`  - ${i.name}${i.quantity ? ` (${i.quantity})` : ''}`)
+      })
+    })
+
+    const pantryList = lines.join('\n')
+    const prompt = `Here is everything I currently have in my pantry:\n\n${pantryList}\n\nBased on what I have, please suggest a recipe and give me step-by-step instructions. Tell me if there's anything small I might need to pick up to complete the dish.`
+
+    navigator.clipboard.writeText(prompt).then(() => {
+      setPromptCopied(true)
+      setTimeout(() => setPromptCopied(false), 2500)
+    })
   }
 
   const markOut = (item: PantryItem) => {
@@ -518,6 +546,16 @@ export default function PantryPage() {
               >
                 <ChecklistIcon size={14} />
                 Review
+              </button>
+            )}
+            {inStock.length > 0 && (
+              <button
+                onClick={copyPantryPrompt}
+                title="Copy pantry as a Claude prompt"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium"
+                style={{ background: promptCopied ? 'var(--primary-light)' : 'var(--border)', color: promptCopied ? 'var(--primary)' : 'var(--muted)' }}
+              >
+                {promptCopied ? '✓ Copied!' : '💬 Ask Claude'}
               </button>
             )}
           </div>
