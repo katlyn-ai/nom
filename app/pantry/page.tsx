@@ -305,16 +305,18 @@ export default function PantryPage() {
     </div>
   )
 
-  const ItemRow = ({ item, i, onQuantityChange, onNameChange }: {
+  const ItemRow = ({ item, i, onQuantityChange, onNameChange, onCategoryChange }: {
     item: PantryItem; i: number
     onQuantityChange: (id: string, qty: string | null) => void
     onNameChange: (id: string, name: string) => void
+    onCategoryChange: (id: string, category: string) => void
   }) => {
     const [hovered, setHovered] = useState(false)
     const [editingQty, setEditingQty] = useState(false)
     const [qtyDraft, setQtyDraft] = useState(item.quantity ?? '')
     const [editingName, setEditingName] = useState(false)
     const [nameDraft, setNameDraft] = useState(item.name)
+    const [editingCat, setEditingCat] = useState(false)
 
     const saveQty = async () => {
       const trimmed = qtyDraft.trim() || null
@@ -330,6 +332,13 @@ export default function PantryPage() {
       if (!trimmed || trimmed === item.name) { setNameDraft(item.name); return }
       await supabase.from('pantry_items').update({ name: trimmed }).eq('id', item.id)
       onNameChange(item.id, trimmed)
+    }
+
+    const saveCat = async (newCat: string) => {
+      setEditingCat(false)
+      if (newCat === item.category) return
+      await supabase.from('pantry_items').update({ category: newCat }).eq('id', item.id)
+      onCategoryChange(item.id, newCat)
     }
 
     return (
@@ -427,6 +436,32 @@ export default function PantryPage() {
             )
           })()}
         </span>
+        {/* Category selector */}
+        {editingCat ? (
+          <select
+            autoFocus
+            value={item.category}
+            onChange={e => saveCat(e.target.value)}
+            onBlur={() => setEditingCat(false)}
+            className="text-xs px-2 py-1 rounded-lg outline-none flex-shrink-0"
+            style={{ background: 'var(--background)', color: 'var(--foreground)', border: '1.5px solid var(--primary)', maxWidth: 110 }}
+          >
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        ) : (
+          <button
+            onClick={() => setEditingCat(true)}
+            title="Change category"
+            className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 transition-opacity"
+            style={{
+              background: 'var(--border)',
+              color: 'var(--muted)',
+              opacity: hovered ? 0.9 : 0,
+            }}
+          >
+            {item.category}
+          </button>
+        )}
         <button
           onClick={() => deleteItem(item.id)}
           title="Remove from pantry"
@@ -565,7 +600,7 @@ export default function PantryPage() {
               <div key={cat}>
                 <p className="text-xs font-medium uppercase tracking-wider mb-2" style={{ color: 'var(--muted)' }}>{cat}</p>
                 <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-                  {catItems.map((item, i) => <ItemRow key={item.id} item={item} i={i} onQuantityChange={(id, qty) => setItems(prev => prev.map(p => p.id === id ? { ...p, quantity: qty } : p))} onNameChange={(id, name) => setItems(prev => prev.map(p => p.id === id ? { ...p, name } : p))} />)}
+                  {catItems.map((item, i) => <ItemRow key={item.id} item={item} i={i} onQuantityChange={(id, qty) => setItems(prev => prev.map(p => p.id === id ? { ...p, quantity: qty } : p))} onNameChange={(id, name) => setItems(prev => prev.map(p => p.id === id ? { ...p, name } : p))} onCategoryChange={(id, category) => setItems(prev => prev.map(p => p.id === id ? { ...p, category } : p))} />)}
                 </div>
               </div>
             ))}
