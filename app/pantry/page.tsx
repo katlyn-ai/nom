@@ -376,21 +376,22 @@ export default function PantryPage() {
     return (
       <div
         key={item.id}
-        className="flex items-center gap-3 px-4 py-3"
+        className="flex items-start gap-3 px-4 py-3"
         style={{ background: 'var(--card)', borderTop: i > 0 ? '1px solid var(--border)' : 'none' }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
+        {/* Mark-out circle */}
         <button
           onClick={() => markOut(item)}
           title="Mark as run out"
-          className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0"
+          className="w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 mt-0.5"
           style={{ borderColor: 'var(--primary)' }}
         />
-        <span
-          className="text-sm flex-1 flex items-center gap-2 min-w-0"
-          style={{ color: 'var(--foreground)' }}
-        >
+
+        {/* Main content — two lines */}
+        <div className="flex-1 min-w-0">
+          {/* Line 1: name */}
           {editingName ? (
             <input
               autoFocus
@@ -401,22 +402,23 @@ export default function PantryPage() {
                 if (e.key === 'Enter') saveName()
                 if (e.key === 'Escape') { setNameDraft(item.name); setEditingName(false) }
               }}
-              className="text-sm px-2 py-0.5 rounded-lg outline-none flex-1 min-w-0"
+              className="text-sm px-2 py-0.5 rounded-lg outline-none w-full"
               style={{ background: 'var(--background)', color: 'var(--foreground)', border: '1.5px solid var(--primary)' }}
             />
           ) : (
-            <span
-              className="truncate cursor-text hover:opacity-70 transition-opacity"
-              title="Click to edit name"
+            <p
+              className="text-sm font-medium cursor-text leading-snug"
+              style={{ color: 'var(--foreground)', wordBreak: 'break-word' }}
               onClick={() => { setNameDraft(item.name); setEditingName(true) }}
             >
               {item.name}
-            </span>
+            </p>
           )}
 
-          {/* Quantity — tap to edit */}
-          {(
-            editingQty ? (
+          {/* Line 2: quantity · expiry · category */}
+          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+            {/* Quantity */}
+            {editingQty ? (
               <input
                 autoFocus
                 value={qtyDraft}
@@ -427,14 +429,13 @@ export default function PantryPage() {
                   if (e.key === 'Escape') { setQtyDraft(item.quantity ?? ''); setEditingQty(false) }
                 }}
                 placeholder="e.g. 500g"
-                className="text-xs px-2 py-0.5 rounded-full outline-none w-24 flex-shrink-0"
+                className="text-xs px-2 py-0.5 rounded-full outline-none w-28"
                 style={{ background: 'var(--primary-light)', color: 'var(--primary)', border: '1.5px solid var(--primary)' }}
               />
             ) : item.quantity ? (
               <button
                 onClick={() => { setQtyDraft(item.quantity ?? ''); setEditingQty(true) }}
-                title="Edit amount"
-                className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 hover:opacity-75 transition-opacity"
+                className="text-xs px-2 py-0.5 rounded-full hover:opacity-75 transition-opacity"
                 style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
               >
                 {item.quantity}
@@ -442,62 +443,58 @@ export default function PantryPage() {
             ) : (
               <button
                 onClick={() => { setQtyDraft(''); setEditingQty(true) }}
-                title="Add amount"
-                className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 transition-opacity"
-                style={{
-                  background: 'var(--border)',
-                  color: 'var(--muted)',
-                  opacity: hovered ? 0.8 : 0,
-                }}
+                className="text-xs px-2 py-0.5 rounded-full transition-opacity"
+                style={{ background: 'var(--border)', color: 'var(--muted)', opacity: hovered ? 1 : 0 }}
               >
                 + amount
               </button>
-            )
-          )}
+            )}
 
-          {item.expires_at && (() => {
-            const status = expiryStatus(item.expires_at)
-            const s = EXPIRY_STYLES[status]
-            return (
-              <span
-                className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 font-medium"
-                style={{ background: s.bg, color: s.color }}
+            {/* Expiry */}
+            {item.expires_at && (() => {
+              const status = expiryStatus(item.expires_at)
+              const s = EXPIRY_STYLES[status]
+              return (
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full font-medium"
+                  style={{ background: s.bg, color: s.color }}
+                >
+                  {s.label(item.expires_at)}
+                </span>
+              )
+            })()}
+
+            {/* Category picker */}
+            {editingCat ? (
+              <select
+                autoFocus
+                value={item.category}
+                onChange={e => saveCat(e.target.value)}
+                onBlur={() => setEditingCat(false)}
+                className="text-xs px-2 py-0.5 rounded-full outline-none"
+                style={{ background: 'var(--background)', color: 'var(--foreground)', border: '1.5px solid var(--primary)' }}
               >
-                {s.label(item.expires_at)}
-              </span>
-            )
-          })()}
-        </span>
-        {/* Category selector */}
-        {editingCat ? (
-          <select
-            autoFocus
-            value={item.category}
-            onChange={e => saveCat(e.target.value)}
-            onBlur={() => setEditingCat(false)}
-            className="text-xs px-2 py-1 rounded-lg outline-none flex-shrink-0"
-            style={{ background: 'var(--background)', color: 'var(--foreground)', border: '1.5px solid var(--primary)', maxWidth: 110 }}
-          >
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        ) : (
-          <button
-            onClick={() => setEditingCat(true)}
-            title="Change category"
-            className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 transition-opacity"
-            style={{
-              background: 'var(--border)',
-              color: 'var(--muted)',
-              opacity: hovered ? 0.9 : 0,
-            }}
-          >
-            {item.category}
-          </button>
-        )}
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            ) : (
+              <button
+                onClick={() => setEditingCat(true)}
+                title="Change category"
+                className="text-xs px-2 py-0.5 rounded-full transition-opacity"
+                style={{ background: 'var(--border)', color: 'var(--muted)', opacity: hovered ? 0.9 : 0.4 }}
+              >
+                {item.category}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Delete */}
         <button
           onClick={() => deleteItem(item.id)}
           title="Remove from pantry"
-          style={{ color: 'var(--muted)', opacity: hovered ? 1 : 0.3, transition: 'opacity 0.15s' }}
+          className="mt-0.5 flex-shrink-0"
+          style={{ color: 'var(--muted)', opacity: hovered ? 1 : 0.25, transition: 'opacity 0.15s' }}
         >
           <XIcon size={14} />
         </button>
