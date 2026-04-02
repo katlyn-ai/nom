@@ -415,78 +415,82 @@ export default function PantryPage() {
             </p>
           )}
 
-          {/* Line 2: quantity · expiry · category */}
-          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-            {/* Quantity */}
-            {editingQty ? (
-              <input
-                autoFocus
-                value={qtyDraft}
-                onChange={e => setQtyDraft(e.target.value)}
-                onBlur={saveQty}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') saveQty()
-                  if (e.key === 'Escape') { setQtyDraft(item.quantity ?? ''); setEditingQty(false) }
-                }}
-                placeholder="e.g. 500g"
-                className="text-xs px-2 py-0.5 rounded-full outline-none w-28"
-                style={{ background: 'var(--primary-light)', color: 'var(--primary)', border: '1.5px solid var(--primary)' }}
-              />
-            ) : item.quantity ? (
-              <button
-                onClick={() => { setQtyDraft(item.quantity ?? ''); setEditingQty(true) }}
-                className="text-xs px-2 py-0.5 rounded-full hover:opacity-75 transition-opacity"
-                style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
-              >
-                {item.quantity}
-              </button>
-            ) : (
-              <button
-                onClick={() => { setQtyDraft(''); setEditingQty(true) }}
-                className="text-xs px-2 py-0.5 rounded-full transition-opacity"
-                style={{ background: 'var(--border)', color: 'var(--muted)', opacity: hovered ? 1 : 0 }}
-              >
-                + amount
-              </button>
-            )}
-
-            {/* Expiry */}
-            {item.expires_at && (() => {
-              const status = expiryStatus(item.expires_at)
-              const s = EXPIRY_STYLES[status]
-              return (
-                <span
-                  className="text-xs px-2 py-0.5 rounded-full font-medium"
-                  style={{ background: s.bg, color: s.color }}
+          {/* Line 2: only shown when there's something to display */}
+          {(item.quantity || item.expires_at || editingQty || editingCat || hovered) && (
+            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+              {/* Quantity */}
+              {editingQty ? (
+                <input
+                  autoFocus
+                  value={qtyDraft}
+                  onChange={e => setQtyDraft(e.target.value)}
+                  onBlur={saveQty}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') saveQty()
+                    if (e.key === 'Escape') { setQtyDraft(item.quantity ?? ''); setEditingQty(false) }
+                  }}
+                  placeholder="e.g. 500g"
+                  className="text-xs px-2 py-0.5 rounded-full outline-none w-28"
+                  style={{ background: 'var(--primary-light)', color: 'var(--primary)', border: '1.5px solid var(--primary)' }}
+                />
+              ) : item.quantity ? (
+                <button
+                  onClick={() => { setQtyDraft(item.quantity ?? ''); setEditingQty(true) }}
+                  className="text-xs px-2 py-0.5 rounded-full hover:opacity-75 transition-opacity"
+                  style={{ background: 'var(--primary-light)', color: 'var(--primary)' }}
                 >
-                  {s.label(item.expires_at)}
-                </span>
-              )
-            })()}
+                  {item.quantity}
+                </button>
+              ) : hovered ? (
+                <button
+                  onClick={() => { setQtyDraft(''); setEditingQty(true) }}
+                  className="text-xs px-2 py-0.5 rounded-full"
+                  style={{ background: 'var(--border)', color: 'var(--muted)' }}
+                >
+                  + amount
+                </button>
+              ) : null}
 
-            {/* Category picker */}
-            {editingCat ? (
-              <select
-                autoFocus
-                value={item.category}
-                onChange={e => saveCat(e.target.value)}
-                onBlur={() => setEditingCat(false)}
-                className="text-xs px-2 py-0.5 rounded-full outline-none"
-                style={{ background: 'var(--background)', color: 'var(--foreground)', border: '1.5px solid var(--primary)' }}
-              >
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            ) : (
-              <button
-                onClick={() => setEditingCat(true)}
-                title="Change category"
-                className="text-xs px-2 py-0.5 rounded-full transition-opacity"
-                style={{ background: 'var(--border)', color: 'var(--muted)', opacity: hovered ? 0.9 : 0.4 }}
-              >
-                {item.category}
-              </button>
-            )}
-          </div>
+              {/* Expiry */}
+              {item.expires_at && (() => {
+                const status = expiryStatus(item.expires_at)
+                const s = EXPIRY_STYLES[status]
+                return (
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full font-medium"
+                    style={{ background: s.bg, color: s.color }}
+                  >
+                    {s.label(item.expires_at)}
+                  </span>
+                )
+              })()}
+
+              {/* Category picker — only on hover/editing */}
+              {(hovered || editingCat) && (
+                editingCat ? (
+                  <select
+                    autoFocus
+                    value={item.category}
+                    onChange={e => saveCat(e.target.value)}
+                    onBlur={() => setEditingCat(false)}
+                    className="text-xs px-2 py-0.5 rounded-full outline-none"
+                    style={{ background: 'var(--background)', color: 'var(--foreground)', border: '1.5px solid var(--primary)' }}
+                  >
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                ) : (
+                  <button
+                    onClick={() => setEditingCat(true)}
+                    title="Change category"
+                    className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: 'var(--border)', color: 'var(--muted)' }}
+                  >
+                    {item.category}
+                  </button>
+                )
+              )}
+            </div>
+          )}
         </div>
 
         {/* Delete */}
