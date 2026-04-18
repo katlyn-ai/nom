@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import Nav from '@/components/nav'
 
@@ -71,6 +71,8 @@ export default function RecipesPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [fillingRecipes, setFillingRecipes] = useState(false)
   const [fillResult, setFillResult] = useState<{ filled: number; total: number } | null>(null)
+  const [scanningRecipe, setScanningRecipe] = useState(false)
+  const recipeScanRef = useRef<HTMLInputElement>(null)
 
   const supabase = createClient()
 
@@ -270,6 +272,48 @@ export default function RecipesPage() {
     setImportSaving(false)
   }
 
+  const handleRecipeScan = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (recipeScanRef.current) recipeScanRef.current.value = ''
+    setScanningRecipe(true)
+
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const base64 = (reader.result as string).split(',')[1]
+        const res = await fetch('/api/scan-recipe', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ imageBase64: base64, mimeType: file.type || 'image/jpeg' }),
+        })
+        const data = await res.json()
+        if (data.error || !data.recipe) {
+          alert(data.error || 'Could not read the recipe. Try a clearer photo.')
+          setScanningRecipe(false)
+          return
+        }
+        const r = data.recipe
+        // Feed directly into the import preview flow
+        setImportPreview({
+          name: r.name || '',
+          description: r.description || '',
+          ingredients: Array.isArray(r.ingredients) ? r.ingredients : [],
+          instructions: r.instructions || '',
+          servings: r.servings || 4,
+          prep_time: r.prep_time || 30,
+          tags: Array.isArray(r.tags) ? r.tags : [],
+          image_url: null,
+        })
+        setShowImport(true)
+      } catch {
+        alert('Something went wrong. Please try again.')
+      }
+      setScanningRecipe(false)
+    }
+    reader.readAsDataURL(file)
+  }
+
   const closeImport = () => {
     setShowImport(false)
     setImportError('')
@@ -315,7 +359,27 @@ export default function RecipesPage() {
             <h1 className="text-2xl font-semibold" style={{ color: 'var(--foreground)' }}>Recipe Book</h1>
             <p className="mt-1" style={{ color: 'var(--muted)' }}>{recipes.length} recipes saved</p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap justify-end">
+            {/* Hidden file input for recipe photo scan */}
+            <input
+              ref={recipeScanRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleRecipeScan}
+            />
+            <button
+              onClick={() => recipeScanRef.current?.click()}
+              disabled={scanningRecipe}
+              className="px-4 py-2.5 rounded-xl text-sm font-medium disabled:opacity-60 flex items-center gap-1.5"
+              style={{ background: 'var(--primary)', color: 'white' }}
+            >
+              {scanningRecipe ? (
+                <><span className="animate-spin inline-block">✨</span> Reading…</>
+              ) : (
+                <>📷 Scan from book</>
+              )}
+            </button>
             <button
               onClick={() => setShowImport(true)}
               className="px-4 py-2.5 rounded-xl text-sm font-medium"
@@ -328,7 +392,7 @@ export default function RecipesPage() {
               className="px-4 py-2.5 rounded-xl text-white text-sm font-medium"
               style={{ background: 'var(--primary)' }}
             >
-              + Add manually
+              + Add
             </button>
           </div>
         </div>
