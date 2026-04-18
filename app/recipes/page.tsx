@@ -73,8 +73,28 @@ export default function RecipesPage() {
   const [fillResult, setFillResult] = useState<{ filled: number; total: number } | null>(null)
   const [scanningRecipe, setScanningRecipe] = useState(false)
   const recipeScanRef = useRef<HTMLInputElement>(null)
+  const importPhotoRef = useRef<HTMLInputElement>(null)
+  const addPhotoRef = useRef<HTMLInputElement>(null)
 
   const supabase = createClient()
+
+  // Compress an image file to a data URL (max 800px wide, JPEG 80%)
+  const compressImage = (file: File): Promise<string> =>
+    new Promise(resolve => {
+      const img = new Image()
+      const objectUrl = URL.createObjectURL(file)
+      img.onload = () => {
+        const maxW = 800
+        const scale = Math.min(1, maxW / img.width)
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height)
+        URL.revokeObjectURL(objectUrl)
+        resolve(canvas.toDataURL('image/jpeg', 0.8))
+      }
+      img.src = objectUrl
+    })
 
   useEffect(() => {
     const load = async () => {
@@ -788,20 +808,42 @@ export default function RecipesPage() {
                     )}
                   </div>
 
-                  {/* Optional photo URL */}
+                  {/* Photo upload */}
                   <div className="mb-4">
-                    <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>
-                      Photo URL <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
-                    </label>
+                    <p className="text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
+                      Photo <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+                    </p>
                     <input
-                      type="url"
-                      value={importImageUrl}
-                      onChange={e => setImportImageUrl(e.target.value)}
-                      placeholder="https://example.com/photo.jpg"
-                      className="w-full px-4 py-3 rounded-xl border text-sm outline-none"
-                      style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
+                      ref={importPhotoRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async e => {
+                        const file = e.target.files?.[0]
+                        if (!file) return
+                        if (importPhotoRef.current) importPhotoRef.current.value = ''
+                        const dataUrl = await compressImage(file)
+                        setImportImageUrl(dataUrl)
+                      }}
                     />
-                    <p className="text-xs mt-1" style={{ color: 'var(--muted)' }}>Right-click a photo on the recipe page → Copy image address</p>
+                    {importImageUrl ? (
+                      <div className="relative rounded-xl overflow-hidden" style={{ height: 140 }}>
+                        <img src={importImageUrl} alt="Recipe" className="w-full h-full object-cover" />
+                        <button
+                          onClick={() => setImportImageUrl('')}
+                          className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
+                          style={{ background: 'rgba(0,0,0,0.5)', color: 'white' }}
+                        >✕</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => importPhotoRef.current?.click()}
+                        className="w-full py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
+                        style={{ background: 'var(--background)', border: '1.5px dashed var(--border)', color: 'var(--muted)' }}
+                      >
+                        📷 Take a photo or choose from album
+                      </button>
+                    )}
                   </div>
 
                   <div className="flex gap-3">
@@ -921,28 +963,41 @@ export default function RecipesPage() {
                   </div>
                 ))}
 
-                {/* Photo URL field */}
+                {/* Photo upload */}
                 <div>
                   <label className="block text-sm font-medium mb-1.5" style={{ color: 'var(--foreground)' }}>
-                    Photo URL <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
+                    Photo <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span>
                   </label>
                   <input
-                    type="url"
-                    value={form.image_url}
-                    onChange={e => setForm(prev => ({ ...prev, image_url: e.target.value }))}
-                    placeholder="https://example.com/photo.jpg"
-                    className="w-full px-4 py-3 rounded-xl border text-sm outline-none"
-                    style={{ borderColor: 'var(--border)', background: 'var(--background)', color: 'var(--foreground)' }}
+                    ref={addPhotoRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async e => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      if (addPhotoRef.current) addPhotoRef.current.value = ''
+                      const dataUrl = await compressImage(file)
+                      setForm(prev => ({ ...prev, image_url: dataUrl }))
+                    }}
                   />
-                  {form.image_url && (
-                    <div className="mt-2 rounded-xl overflow-hidden" style={{ height: '100px' }}>
-                      <img
-                        src={form.image_url}
-                        alt="Preview"
-                        className="w-full h-full object-cover"
-                        onError={e => { e.currentTarget.style.opacity = '0.3' }}
-                      />
+                  {form.image_url ? (
+                    <div className="relative rounded-xl overflow-hidden" style={{ height: 120 }}>
+                      <img src={form.image_url} alt="Preview" className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => setForm(prev => ({ ...prev, image_url: '' }))}
+                        className="absolute top-2 right-2 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold"
+                        style={{ background: 'rgba(0,0,0,0.5)', color: 'white' }}
+                      >✕</button>
                     </div>
+                  ) : (
+                    <button
+                      onClick={() => addPhotoRef.current?.click()}
+                      className="w-full py-3 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
+                      style={{ background: 'var(--background)', border: '1.5px dashed var(--border)', color: 'var(--muted)' }}
+                    >
+                      📷 Take a photo or choose from album
+                    </button>
                   )}
                 </div>
 
